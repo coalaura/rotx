@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -33,6 +34,7 @@ type Response struct {
 	route       *config.Route
 	headers     http.Header
 	snapshot    http.Header
+	trailers    http.Header
 	status      int
 	committed   bool
 	suppress    bool
@@ -164,7 +166,7 @@ func (r *Response) FlushError() error {
 	}
 
 	err := http.NewResponseController(r.writer).Flush()
-	if err != nil {
+	if err != nil && !errors.Is(err, http.ErrNotSupported) {
 		r.err = err
 	}
 
@@ -187,17 +189,9 @@ func (r *Response) prepare() {
 	}
 
 	if cache.Mode == config.CacheEnabled && r.hasMetadata && r.status == http.StatusOK {
-		metadata := r.metadata
+		r.setValidators(headers)
 
-		tag := metadata.ETag
-		if tag == "" {
-			tag = `W/"` + strconv.FormatInt(metadata.Modified.UnixNano(), 16) + "-" + strconv.FormatInt(metadata.Size, 16) + `"`
-		}
-
-		headers.Set("Etag", tag)
-		headers.Set("Last-Modified", metadata.Modified.UTC().Format(http.TimeFormat))
-
-		if notModified(r.request, tag, metadata.Modified) {
+		if notModified(r.request, headers.Get("Etag"), r.metadata.Modified) {
 			r.status = http.StatusNotModified
 		}
 	}
@@ -215,6 +209,18 @@ func (r *Response) prepare() {
 	r.route.ApplyHeaders(headers)
 }
 
+func (r *Response) setValidators(headers http.Header) {
+	metadata := r.metadata
+
+	tag := metadata.ETag
+	if tag == "" {
+		tag = `W/"` + strconv.FormatInt(metadata.Modified.UnixNano(), 16) + "-" + strconv.FormatInt(metadata.Size, 16) + `"`
+	}
+
+	headers.Set("Etag", tag)
+	headers.Set("Last-Modified", metadata.Modified.UTC().Format(http.TimeFormat))
+}
+
 func (r *Response) commit() {
 	copyHeaders(r.writer.Header(), r.snapshot)
 
@@ -229,6 +235,11 @@ func (r *Response) finish() error {
 	}
 
 	if !r.committed {
+		for name := range r.trailers {
+			r.snapshot.Add("Trailer", name)
+			r.snapshot.Del("Content-Length")
+		}
+
 		r.commit()
 
 		if !r.suppress && r.request.Method != http.MethodHead {
@@ -237,6 +248,10 @@ func (r *Response) finish() error {
 				return err
 			}
 		}
+	}
+
+	for name, values := range r.trailers {
+		r.writer.Header()[http.TrailerPrefix+name] = values
 	}
 
 	return r.err
@@ -249,6 +264,7 @@ func (r *Response) fail(status int) {
 
 	r.status = 0
 	r.snapshot = nil
+	r.trailers = nil
 	r.suppress = false
 	r.hasMetadata = false
 

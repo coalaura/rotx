@@ -57,8 +57,6 @@ func TestReturnAndNormalizedRouting(t *testing.T) {
 		location = /hello/world { header_set example two; header_add EXAMPLE three; return 200 "hello"; }
 		location = /%252e%252e/file { return 200 "literal percent"; }
 		location = /empty { return 204; }
-		location /proxy { proxy_pass http://localhost; }
-		location /static { root files; }
 	`)
 
 	router := New(compiled, Handoffs{})
@@ -68,8 +66,6 @@ func TestReturnAndNormalizedRouting(t *testing.T) {
 		{path: "/%252e%252e/file", body: "literal percent", status: 200},
 		{path: "/empty", body: "", status: 204},
 		{path: "/missing", body: "Not Found\n", status: 404},
-		{path: "/proxy", body: "Not Implemented\n", status: 501},
-		{path: "/static", body: "Not Implemented\n", status: 501},
 	}
 
 	for _, test := range cases {

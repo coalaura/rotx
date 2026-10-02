@@ -1,7 +1,8 @@
-// Package router executes compiled routes up to the proxy/filesystem handoff.
+// Package router serves compiled routes, static files, and HTTP upstreams.
 package router
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -12,42 +13,68 @@ import (
 	"github.com/coalaura/rotx/pkg/config"
 )
 
-// StaticTarget is a prepared lexical path. A file-serving implementation must
-// enforce symlink containment and try Route.Index entries for directories.
+// StaticTarget is a prepared lexical path and its compiled filesystem policy.
 type StaticTarget struct {
 	Path  string
 	Route *config.Route
 }
 
-// Handoffs are optional. Missing handlers return 501 without network or file I/O.
+// Handoffs optionally override the built-in HTTP and filesystem handlers.
 // Static handlers set metadata before writing their status or body. Error is an
 // optional application-level reporter, e.g. a closure using the global logger.
 type Handoffs struct {
-	Proxy  func(*Response, *http.Request, url.URL) error
-	Static func(*Response, *http.Request, StaticTarget) error
-	Error  func(*http.Request, error)
+	Transport http.RoundTripper
+	Proxy     func(*Response, *http.Request, url.URL) error
+	Static    func(*Response, *http.Request, StaticTarget) error
+	Error     func(*http.Request, error)
 }
 
 type Router struct {
-	handoffs Handoffs
-	config   *config.Config
+	handoffs  Handoffs
+	transport http.RoundTripper
+	config    *config.Config
 }
 
-func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	err := router.Handle(writer, request)
-	if err != nil && router.handoffs.Error != nil {
-		router.handoffs.Error(request, err)
+type streamError struct {
+	err error
+}
+
+func (err *streamError) Error() string {
+	return err.err.Error()
+}
+
+func (err *streamError) Unwrap() error {
+	return err.err
+}
+
+// CloseIdleConnections releases idle upstream connections when retiring a router.
+func (r *Router) CloseIdleConnections() {
+	if closer, ok := r.transport.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
+func (r *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	err := r.Handle(writer, request)
+	if err != nil && r.handoffs.Error != nil {
+		r.handoffs.Error(request, err)
+	}
+
+	_, interrupted := errors.AsType[*streamError](err)
+	if interrupted {
+		// Do not terminate a truncated streaming response as a successful body.
+		panic(http.ErrAbortHandler)
 	}
 }
 
 // Handle writes an HTTP response and also returns any handoff/write error to its
 // caller. Once a streaming response has committed, errors cannot change status.
-func (router *Router) Handle(writer http.ResponseWriter, request *http.Request) error {
+func (r *Router) Handle(writer http.ResponseWriter, request *http.Request) error {
 	name := onionHost(request.Host)
 
 	requestPath, err := config.NormalizePath(request.URL.Path)
 	if err != nil {
-		response := newResponse(writer, request, router.config.Fallback(name))
+		response := newResponse(writer, request, r.config.Fallback(name))
 
 		writeStatus(response, request, http.StatusBadRequest, "Bad Request\n")
 
@@ -56,9 +83,9 @@ func (router *Router) Handle(writer http.ResponseWriter, request *http.Request) 
 		return err
 	}
 
-	route := router.config.Match(name, requestPath)
+	route := r.config.Match(name, requestPath)
 	if route == nil {
-		response := newResponse(writer, request, router.config.Fallback(""))
+		response := newResponse(writer, request, r.config.Fallback(""))
 
 		writeStatus(response, request, http.StatusNotFound, "Not Found\n")
 
@@ -79,8 +106,12 @@ func (router *Router) Handle(writer http.ResponseWriter, request *http.Request) 
 
 	response := newResponse(writer, request, route)
 
-	err = router.dispatch(response, request, route, requestPath)
+	err = r.dispatch(response, request, route, requestPath)
 	if err != nil {
+		if response.committed {
+			return &streamError{err: err}
+		}
+
 		status := http.StatusInternalServerError
 
 		if route.Kind() == config.Proxy {
@@ -96,15 +127,21 @@ func (router *Router) Handle(writer http.ResponseWriter, request *http.Request) 
 		return err
 	}
 
+	if finishError != nil && response.committed {
+		return &streamError{err: finishError}
+	}
+
 	return finishError
 }
 
-func (router *Router) dispatch(response *Response, request *http.Request, route *config.Route, requestPath string) error {
+func (r *Router) dispatch(response *Response, request *http.Request, route *config.Route, requestPath string) error {
 	switch route.Kind() {
 	case config.Proxy:
-		if router.handoffs.Proxy != nil {
-			return router.handoffs.Proxy(response, request, route.ProxyURL(requestPath, request.URL.RawQuery))
+		if r.handoffs.Proxy != nil {
+			return r.handoffs.Proxy(response, request, route.ProxyURL(requestPath, request.URL.RawQuery))
 		}
+
+		return r.proxy(response, request, route.ProxyURL(requestPath, request.URL.RawQuery))
 	case config.StaticRoot, config.StaticAlias:
 		target, err := route.StaticPath(requestPath)
 		if err != nil {
@@ -113,20 +150,25 @@ func (router *Router) dispatch(response *Response, request *http.Request, route 
 			return err
 		}
 
-		if router.handoffs.Static != nil {
-			return router.handoffs.Static(response, request, StaticTarget{Path: target, Route: route})
+		if r.handoffs.Static != nil {
+			return r.handoffs.Static(response, request, StaticTarget{Path: target, Route: route})
 		}
+
+		return serveStatic(response, request, StaticTarget{Path: target, Route: route})
 	case config.Return:
 		return writeStatus(response, request, route.Status(), route.Body())
 	default:
 		return writeStatus(response, request, http.StatusNotFound, "Not Found\n")
 	}
-
-	return writeStatus(response, request, http.StatusNotImplemented, "Not Implemented\n")
 }
 
 func New(compiled *config.Config, handoffs Handoffs) *Router {
-	return &Router{config: compiled, handoffs: handoffs}
+	transport := handoffs.Transport
+	if transport == nil {
+		transport = newTransport()
+	}
+
+	return &Router{config: compiled, handoffs: handoffs, transport: transport}
 }
 
 func onionHost(host string) string {
