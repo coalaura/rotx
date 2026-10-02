@@ -17,7 +17,7 @@ func main() {
 	compiled, err := config.Load(ConfigPath)
 	log.MustFail(err)
 
-	log.Infof("configuration valid: %d onion services", compiled.ServerCount())
+	log.Infof("Configuration valid: %d onion services", compiled.ServerCount())
 
 	// serve
 }

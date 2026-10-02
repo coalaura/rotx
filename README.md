@@ -1,28 +1,39 @@
 # rotx
 
-An nginx-style configuration compiler and HTTP router for Tor onion services. It validates configuration and identities, serves static files, proxies HTTP(S) requests and applies response policies. Tor listeners are the next integration layer.
+rotx is a lightweight Tor reverse proxy and static file server, designed for high performance and zero-allocation routing. It sits between Tor and local files or HTTP services, serving multiple onion addresses with separate routes for each.
 
-## Configuration check
+The configuration is nginx-style, with a smaller set of features and some intentional differences in behavior. The name comes from *tor* backwards (*rot*) and the *x* in *nginx*.
 
-Build with `go build .`, then validate with `rotx -config rotx.conf`. The command reads the configuration, included files and identity keys, compiles the routing table and exits. It uses the single global `github.com/coalaura/plain` logger; errors propagate to `main`, where `log.MustFail` handles failure.
+## Documentation
+
+- [Configuration](#configuration)
+- [Config syntax](#config-syntax)
+- [Routing](#routing)
+- [Static files](#static-files)
+- [Reverse proxy](#reverse-proxy)
+- [Responses and headers](#responses-and-headers)
+- [Caching](#caching)
+- [Development](#development)
+
+## Configuration
+
+The executable reads `config.yml` from the working directory. The file uses the syntax below, regardless of its extension.
 
 ```nginx
 http {
 	header_set X-Content-Type-Options nosniff;
 
 	server {
-		# Replace with the lowercase, 56-character v3 identity matching the keys.
-		name "<your-onion-name-without-.onion>";
+		name "<onion-name-without-.onion>";
+
 		key_private keys/hs_ed25519_secret_key;
 		key_public keys/hs_ed25519_public_key;
 
 		root public;
-		index index.html index.htm;
-		cache auto;
+		index index.html;
 
-		location = /health {
-			header_set Content-Type text/plain;
-			return 200 "ok\n";
+		location /api/ {
+			proxy_pass http://127.0.0.1:8080;
 		}
 
 		location ^~ /assets/ {
@@ -30,75 +41,106 @@ http {
 			cache 30d;
 		}
 
-		location /api/ {
-			proxy_pass http://localhost:8080/base;
-			proxy_buffer off;
-		}
-
-		location ~ "^/old/[0-9]{2}$" {
-			return 410;
+		location = /health {
+			header_set Content-Type text/plain;
+			return 200 "ok\n";
 		}
 	}
 }
 ```
 
-## Loading and validation
+Replace the placeholder with the lowercase, 56-character v3 onion name matching the key files. Each address gets its own `server` block inside `http`.
 
-- `config.Load(filename)` reads and compiles a configuration. `config.Compile(source, filename)` accepts bytes, using the filename for diagnostics and relative paths. Results own their data and are safe for concurrent requests.
-- `pkg/config/syntax` owns the lexer, streaming parser, include expansion, source diagnostics and syntax tree. `syntax.Load` and `syntax.Parse` return owned `[]syntax.Statement` trees without interpreting directives or reading identity keys. `pkg/config` owns semantic validation, identity verification, inheritance and routing compilation.
-- Exactly one `http` block is required, containing at least one `server`. Locations are direct children of servers. Unknown/misplaced directives, wrong argument counts, duplicate singleton directives, conflicting handlers and duplicate identities are errors.
-- Each server requires `name`, `key_private` and `key_public`. The onion version/checksum, public key and private key must agree. Supported keys are Tor's native header-bearing Ed25519 files and unencrypted PKCS#8 private/PKIX public Ed25519 PEM files. Bare seeds/raw keys are rejected.
-- `include path-or-glob;` inserts tokens at its position, including across block boundaries. Globs are sorted; missing matches, cycles and include nesting beyond 64 files are errors. Relative paths, including `root`, `alias` and keys, are resolved against the file containing that directive.
-- Diagnostics retain source filename, line and column. Duplicate declarations report the original location.
-- `Config.Identities()` exposes identity names and absolute key paths in declaration order. Key material is validated during compilation; a future Tor runtime rereading those paths must validate the new contents too.
+| Directive | Scope | Meaning |
+| --- | --- | --- |
+| `name value` | server | Onion name without `.onion`. |
+| `key_private path` | server | Private identity key. |
+| `key_public path` | server | Public identity key. |
 
-## Routing and inheritance
+All three are required. rotx validates the onion checksum and checks that the name and keys agree. Keys may use Tor's native Ed25519 format or unencrypted Ed25519 PEM files (PKCS#8 private and PKIX public).
 
-1. Exact `location = /path` wins.
-2. Find the longest plain or `^~` prefix; if that longest prefix is `^~`, use it directly.
-3. Otherwise test quoted `~` Go regular expressions in declaration order; first match wins.
-4. Fall back to the longest prefix, then the server handler, then 404.
+## Config syntax
 
-Prefix matching is textual: `/foo` also matches `/foobar`. Requests use the already-decoded `URL.Path`, with repeated slashes and dot segments normalized once and query strings excluded. Escaped percent signs are never decoded a second time. HTTP host lookup requires a configured `.onion` hostname and accepts normal hostname case differences and optional ports.
+- Directives end with `;`. Blocks use `{ ... }`. Comments start with `#`.
+- Arguments may be unquoted, single-quoted or double-quoted. Quote values containing whitespace or syntax characters; regular expressions must be quoted.
+- Exactly one `http` block contains one or more `server` blocks. Locations belong directly to a server and cannot be nested.
+- `include path-or-glob;` inserts configuration at that point. Glob matches are loaded in sorted order.
+- Relative file paths resolve against the file containing the directive, including inside included files.
+- Unknown or misplaced directives, duplicate singleton directives and conflicting handlers are errors. Diagnostics include the source file, line and column.
 
-Locations inherit from their server, never another location. An explicit `root`, `alias`, `proxy_pass` or `return` replaces the inherited handler; only one may appear in a block.
+Locations inherit their server's settings, never another location's. A `root`, `alias`, `proxy_pass` or `return` directive replaces the inherited handler; only one of these may appear in a block.
+
+## Routing
+
+The request's `.onion` host selects the server. Location matching then uses the decoded path, with repeated slashes and dot segments normalized and the query string excluded.
+
+| Location | Match |
+| --- | --- |
+| `location = /path` | Exact path. |
+| `location /path` | Path prefix. |
+| `location ^~ /path` | Path prefix that skips regex matching if it is the longest matching prefix. |
+| `location ~ "pattern"` | Case-sensitive Go regular expression. |
+
+Exact matches win. Otherwise, rotx finds the longest prefix. Unless that prefix uses `^~`, regex locations are checked in declaration order and the first match wins. With no regex match, rotx uses the longest prefix, then the server's handler, then 404. Unknown hosts also return 404.
+
+Prefixes are textual: `/foo` matches `/foobar` as well as `/foo/bar`.
+
+## Static files
 
 | Directive | Scope | Behavior |
 | --- | --- | --- |
-| `root path` | server/location | Append the entire normalized request path. |
-| `alias path` | server/location | Prefix locations remove their matched prefix; exact locations use the target directly. Server aliases append the whole path, including when inherited. Explicit regex aliases are rejected. |
-| `index name ...` | server/location | Replace the inherited index list; default `index.html`. Try these in order, then return 404, with no directory listing. |
-| `proxy_pass URL` | location | HTTP(S) origin and optional base path; join that base with the entire normalized request path. Credentials, query strings and fragments are rejected. |
-| `proxy_path /path` | location | Replace the entire outgoing path, including the upstream base. Preserve the request query. Requires `proxy_pass`. |
-| `proxy_buffer on/off` | location | Buffer the complete response body until the handoff returns; default off. Requires `proxy_pass`. |
-| `return status [body]` | location | A standard final HTTP status, with its standard text or a literal custom body. Must be last after include expansion. Explicit bodies are rejected for 204, 205 and 304. |
+| `root path` | server/location | Append the entire request path to the root. |
+| `alias path` | server/location | In a prefix location, replace the matched prefix with this path. In an exact location, use the target directly. At server scope, append the entire request path. Explicit regex aliases are not supported. |
+| `index name ...` | server/location | Try index files in order; replaces the inherited list. Default: `index.html`. |
 
-## Response policies
+Static serving supports GET and HEAD, MIME detection, byte ranges and conditional requests. Directory URLs redirect to a trailing slash; directories without an index return 404. There are no directory listings. File access is confined to the configured root or alias boundary, including symlink resolution.
 
-`header_set`, `header_unset` and `header_add` modify response headers. Names are canonicalized. Operations run in declaration order within HTTP, server, then location scope, after cache processing. Set replaces all values, unset removes them and add appends. This includes generated error responses. Transport framing/connection headers are reserved. Unsetting `Content-Type` or `Date` also suppresses their automatic HTTP generation.
+## Reverse proxy
 
-`cache` is allowed at server/location scope. Omitted values inherit; the default is `auto`.
+| Directive | Scope | Behavior |
+| --- | --- | --- |
+| `proxy_pass URL` | location | HTTP(S) upstream, optionally with a base path. Credentials, query strings and fragments are not accepted. |
+| `proxy_path /path` | location | Replace the entire outgoing path, including any upstream base path. |
+| `proxy_buffer on/off` | location | Buffer the full response body in memory instead of streaming. Default: `off`. |
 
-| Value | Effect |
+`proxy_path` and `proxy_buffer` require `proxy_pass`. Request query strings are preserved.
+
+Unlike nginx's prefix-replacement behavior, `proxy_pass` joins its base path with the **entire** request path. For example, `/api/users` with `proxy_pass http://127.0.0.1:8080/base;` becomes `/base/api/users`.
+
+The proxy reuses upstream connections and forwards methods, bodies, status codes and end-to-end headers. The upstream `Host` comes from `proxy_pass`; `X-Forwarded-Host` and `X-Forwarded-Proto` describe the incoming request. Incoming `Forwarded`, `X-Forwarded-For` and `X-Real-IP` are removed and transport peer addresses are not forwarded. CONNECT and protocol upgrades return 501.
+
+## Responses and headers
+
+| Directive | Scope | Behavior |
+| --- | --- | --- |
+| `return status [body]` | location | Send a standard final HTTP status with a literal body or the status text if omitted. Must be last in the location. |
+| `header_set name value` | http/server/location | Replace all response header values. |
+| `header_add name value` | http/server/location | Append a response header value. |
+| `header_unset name` | http/server/location | Remove a response header. |
+
+Header operations run in declaration order, from `http` to `server` to `location`, after cache processing. They also apply to generated error responses. Connection and framing headers are reserved for the transport. Statuses 204, 205 and 304 cannot have an explicit body.
+
+## Caching
+
+`cache` sets response cache policy at server or location scope. It does not store upstream responses.
+
+| Value | Behavior |
 | --- | --- |
-| `auto` | Leave cache headers untouched, explicitly cancelling any inherited policy. |
-| `off` | `Cache-Control: no-store`. |
-| `on` | `Cache-Control: public, max-age=3600`. |
-| Positive integer plus `d`, `h`, `m` or `s` | `Cache-Control: public, max-age=N`. Compound/fractional/overflowing durations are rejected. |
+| `auto` | Leave cache headers untouched. Default; overrides any inherited policy. |
+| `off` | Set `Cache-Control: no-store`. |
+| `on` | Set `Cache-Control: public, max-age=3600`. |
+| `30d`, `12h`, `5m`, `30s` | Set a public max-age using a positive integer and one unit. |
 
-Enabled static caching uses file metadata to add `Last-Modified` and a weak size/mtime `ETag`. Custom handlers can supply a content-derived ETag. GET/HEAD conditional requests support `If-None-Match` (including weak comparisons and lists), taking precedence over `If-Modified-Since`; matching responses become bodyless 304s. Proxy validators are left to the upstream. Header directives run last and can override or remove caching headers.
+Enabled static caching adds `Last-Modified` and a weak ETag from file metadata. Matching conditional GET/HEAD requests return 304. Proxy validation is left to the upstream. Header directives can override or remove cache headers.
 
-## Runtime handlers
+## Development
 
-`router.New(compiled, router.Handoffs{})` constructs an `http.Handler` with built-in static and proxy handlers. `Router.Handle` additionally returns handler/write errors; `ServeHTTP` can report these through `Handoffs.Error`, allowing the application to use its global logger. Call `Router.CloseIdleConnections()` when retiring a router. The CLI currently remains a configuration check; it does not start a listener.
+Use the Go version declared in [go.mod](go.mod).
 
-- Static GET/HEAD responses include MIME detection, byte ranges, preconditions and configured index lookup. Other methods return 405. Directory URLs redirect to a trailing slash, preserving the query; exact directory aliases serve their index directly. Missing/inaccessible files and directories without an index return 404.
-- Static opens use `os.Root` to prevent traversal and symlink escapes beyond the configured root/alias. Relative symlinks inside that boundary work. Exact file aliases use their containing directory as the boundary; exact directory aliases use the directory itself. Only regular files are served.
-- HTTP(S) proxying preserves methods, request bodies, query strings, status codes, redirects, encoded bodies and end-to-end response headers. It reuses upstream connections, honors request cancellation, verifies TLS normally and strips hop-by-hop headers. Environment proxy variables are not used. Dial/header timeouts are 30 seconds and TLS handshakes have a 10-second timeout; response bodies may stream indefinitely while the request remains active.
-- Upstream `Host` is the configured upstream authority. `X-Forwarded-Host` and `X-Forwarded-Proto` describe the incoming request. Incoming `Forwarded`, `X-Forwarded-For` and `X-Real-IP` are removed; the router does not expose transport peer addresses. Request and response trailers are forwarded except protocol/cache/authentication fields; response trailers also exclude names controlled by configured header operations. CONNECT and protocol upgrades currently return 501.
-- Response headers are held until status commitment; `proxy_buffer on` retains the entire response body in memory until completion. Streaming responses flush as upstream chunks arrive. Buffered failures discard the partial response and produce 502 for proxies or 500 for static handlers. Streaming failures propagate through `Handle`; `ServeHTTP` aborts the downstream stream so a truncated response cannot appear successful. `Flush` cannot bypass configured buffering.
-- Optional `Handoffs.Proxy` and `Handoffs.Static` replace the built-ins. Proxy receives a `*router.Response`, request and prepared upstream URL. Static receives a response, request and `StaticTarget` with a lexical path and immutable route/index policy; custom file openers must enforce containment and call `Response.SetMetadata` before writing. `Handoffs.Transport` optionally supplies a custom `http.RoundTripper` for the built-in proxy.
+```sh
+go build .
+go test ./...
+vet ./...
+```
 
-## Verification
-
-Use `go test ./...` and `vet ./...`. `go test ./pkg/config -run '^$' -bench '^BenchmarkCompiledMatch$' -benchmem` benchmarks lookup against 1,000 prefix routes. The lookup hot path allocates no memory.
+`pkg/config` loads and validates configuration and then compiles the routing table. `pkg/config/syntax` handles parsing and includes. `pkg/router` provides the HTTP handler, static file serving and reverse proxy.
