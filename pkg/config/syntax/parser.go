@@ -1,4 +1,4 @@
-package config
+package syntax
 
 const (
 	Directive EventKind = iota + 1

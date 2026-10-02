@@ -1,4 +1,4 @@
-package config
+package syntax
 
 // Lexer scans source without copying it. Tokens borrow source until it is changed.
 // A Lexer is ready to use after Reset.

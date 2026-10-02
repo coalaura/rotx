@@ -162,6 +162,19 @@ func (r *Route) ApplyHeaders(headers http.Header) {
 	}
 }
 
+// ControlsHeader reports whether configuration owns the final value of a header.
+func (r *Route) ControlsHeader(name string) bool {
+	name = http.CanonicalHeaderKey(name)
+
+	for index := range r.headers {
+		if r.headers[index].name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ProxyURL preserves the request query while replacing or joining the path.
 func (r *Route) ProxyURL(requestPath, rawQuery string) url.URL {
 	target := r.upstream
@@ -180,8 +193,13 @@ func (r *Route) ProxyURL(requestPath, rawQuery string) url.URL {
 	return target
 }
 
-// StaticPath computes a lexical target only. The future file opener must enforce
-// symlink containment against the configured root when it accesses the filesystem.
+// StaticBase returns the configured filesystem boundary and whether it names an
+// exact alias target (which may be a file rather than a directory).
+func (r *Route) StaticBase() (string, bool) {
+	return r.path, r.aliasExact
+}
+
+// StaticPath computes a lexical target. File openers must also enforce containment.
 func (r *Route) StaticPath(requestPath string) (string, error) {
 	if r.aliasExact {
 		return r.path, nil

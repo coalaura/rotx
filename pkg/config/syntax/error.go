@@ -1,4 +1,4 @@
-package config
+package syntax
 
 const (
 	NoError ErrorCode = iota

@@ -18,9 +18,9 @@ type scope struct {
 }
 
 func compileConfig(statements []statement, position Position) (*Config, error) {
-	if len(statements) != 1 || statements[0].name != "http" || !statements[0].block || len(statements[0].args) != 0 {
+	if len(statements) != 1 || statements[0].Name != "http" || !statements[0].Block || len(statements[0].Args) != 0 {
 		if len(statements) > 0 {
-			position = statements[min(1, len(statements)-1)].position
+			position = statements[min(1, len(statements)-1)].Position
 		}
 
 		return nil, diagnostic(position, "configuration requires exactly one top-level http block with no arguments")
@@ -34,7 +34,7 @@ func compileConfig(statements []statement, position Position) (*Config, error) {
 	}
 
 	if len(global.children) == 0 {
-		return nil, diagnostic(httpBlock.position, "http requires at least one server")
+		return nil, diagnostic(httpBlock.Position, "http requires at least one server")
 	}
 
 	base := Route{
@@ -56,7 +56,7 @@ func compileConfig(statements []statement, position Position) (*Config, error) {
 
 		previous := config.servers[name]
 		if previous != nil {
-			return nil, diagnostic(block.position, "duplicate onion identity %s; first declared at %s", name, previous.position)
+			return nil, diagnostic(block.Position, "duplicate onion identity %s; first declared at %s", name, previous.position)
 		}
 
 		config.servers[name] = compiled
@@ -77,7 +77,7 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 
 	for _, name := range required {
 		if parsed.values[name] == nil {
-			return "", nil, diagnostic(block.position, "server requires %s", name)
+			return "", nil, diagnostic(block.Position, "server requires %s", name)
 		}
 	}
 
@@ -85,17 +85,17 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 	private := parsed.values["key_private"]
 	public := parsed.values["key_public"]
 
-	name := nameDirective.args[0].value
+	name := nameDirective.Args[0].Value
 
 	identity := Identity{
 		Name:           name,
-		PrivateKeyPath: resolveFile(private.position.File, private.args[0].value),
-		PublicKeyPath:  resolveFile(public.position.File, public.args[0].value),
+		PrivateKeyPath: resolveFile(private.Position.File, private.Args[0].Value),
+		PublicKeyPath:  resolveFile(public.Position.File, public.Args[0].Value),
 	}
 
 	err = validateIdentity(identity.Name, identity.PrivateKeyPath, identity.PublicKeyPath)
 	if err != nil {
-		return "", nil, diagnostic(nameDirective.position, "%v", err)
+		return "", nil, diagnostic(nameDirective.Position, "%v", err)
 	}
 
 	fallback, err := compileRoute(block, &parsed, parent)
@@ -107,7 +107,7 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 		identity: identity,
 		fallback: fallback,
 		exact:    make(map[string]*Route),
-		position: block.position,
+		position: block.Position,
 	}
 
 	prefixes := make(map[string]Position, len(parsed.children))
@@ -131,7 +131,7 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 		if local.values["alias"] != nil {
 			switch mode {
 			case "~":
-				return "", nil, diagnostic(location.position, "alias is not supported in regex locations")
+				return "", nil, diagnostic(location.Position, "alias is not supported in regex locations")
 			case "=":
 				route.aliasExact = true
 			default:
@@ -143,23 +143,23 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 		case "=":
 			previous := compiled.exact[pattern]
 			if previous != nil {
-				return "", nil, diagnostic(location.position, "duplicate exact location; first declared at %s", previous.position)
+				return "", nil, diagnostic(location.Position, "duplicate exact location; first declared at %s", previous.position)
 			}
 
 			compiled.exact[pattern] = route
 		case "~":
 			expression, err := regexp.Compile(pattern)
 			if err != nil {
-				return "", nil, diagnostic(location.position, "invalid regular expression: %v", err)
+				return "", nil, diagnostic(location.Position, "invalid regular expression: %v", err)
 			}
 
 			compiled.regex = append(compiled.regex, regexRoute{pattern: expression, route: route})
 		default:
 			if previous, exists := prefixes[pattern]; exists {
-				return "", nil, diagnostic(location.position, "duplicate prefix location; first declared at %s", previous)
+				return "", nil, diagnostic(location.Position, "duplicate prefix location; first declared at %s", previous)
 			}
 
-			prefixes[pattern] = location.position
+			prefixes[pattern] = location.Position
 
 			compiled.prefix.insert(pattern, route, mode == "^~")
 		}
@@ -169,25 +169,29 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 }
 
 func readScope(block *statement, kind string) (scope, error) {
-	parsed := scope{values: make(map[string]*statement, len(block.children))}
+	parsed := scope{values: make(map[string]*statement, len(block.Children))}
 
 	var returned bool
 
-	for index := range block.children {
-		current := &block.children[index]
+	for index := range block.Children {
+		current := &block.Children[index]
 
 		if returned {
-			return parsed, diagnostic(current.position, "return must be the last directive in its location")
+			return parsed, diagnostic(current.Position, "return must be the last directive in its location")
 		}
 
-		if current.block {
-			allowed := kind == "http" && current.name == "server" || kind == "server" && current.name == "location"
-			if !allowed {
-				return parsed, diagnostic(current.position, "block %q is not allowed in %s", current.name, kind)
+		if current.Block {
+			if kind == "location" {
+				return parsed, diagnostic(current.Position, "nested blocks are not allowed in location")
 			}
 
-			if current.name == "server" && len(current.args) != 0 {
-				return parsed, diagnostic(current.position, "server takes no arguments")
+			allowed := kind == "http" && current.Name == "server" || kind == "server" && current.Name == "location"
+			if !allowed {
+				return parsed, diagnostic(current.Position, "block %q is not allowed in %s", current.Name, kind)
+			}
+
+			if current.Name == "server" && len(current.Args) != 0 {
+				return parsed, diagnostic(current.Position, "server takes no arguments")
 			}
 
 			parsed.children = append(parsed.children, current)
@@ -195,16 +199,16 @@ func readScope(block *statement, kind string) (scope, error) {
 			continue
 		}
 
-		minimum, maximum, allowed := directiveSpec(current.name, kind)
+		minimum, maximum, allowed := directiveSpec(current.Name, kind)
 		if !allowed {
-			return parsed, diagnostic(current.position, "unknown or misplaced directive %q in %s", current.name, kind)
+			return parsed, diagnostic(current.Position, "unknown or misplaced directive %q in %s", current.Name, kind)
 		}
 
-		if len(current.args) < minimum || len(current.args) > maximum {
-			return parsed, diagnostic(current.position, "incorrect argument count for %s", current.name)
+		if len(current.Args) < minimum || len(current.Args) > maximum {
+			return parsed, diagnostic(current.Position, "incorrect argument count for %s", current.Name)
 		}
 
-		if strings.HasPrefix(current.name, "header_") {
+		if strings.HasPrefix(current.Name, "header_") {
 			operation, err := compileHeader(current)
 			if err != nil {
 				return parsed, err
@@ -215,14 +219,14 @@ func readScope(block *statement, kind string) (scope, error) {
 			continue
 		}
 
-		previous := parsed.values[current.name]
+		previous := parsed.values[current.Name]
 		if previous != nil {
-			return parsed, diagnostic(current.position, "duplicate %s; first declared at %s", current.name, previous.position)
+			return parsed, diagnostic(current.Position, "duplicate %s; first declared at %s", current.Name, previous.Position)
 		}
 
-		parsed.values[current.name] = current
+		parsed.values[current.Name] = current
 
-		returned = current.name == "return"
+		returned = current.Name == "return"
 	}
 
 	return parsed, nil
@@ -231,7 +235,7 @@ func readScope(block *statement, kind string) (scope, error) {
 func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error) {
 	route := *parent
 
-	route.position = block.position
+	route.position = block.Position
 	route.headers = compileHeaderPlans(parent.headers, parsed.headers)
 
 	handlers := []string{"root", "alias", "proxy_pass", "return"}
@@ -245,7 +249,7 @@ func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error
 		}
 
 		if handler != nil {
-			return nil, diagnostic(current.position, "%s conflicts with %s at %s", name, handler.name, handler.position)
+			return nil, diagnostic(current.Position, "%s conflicts with %s at %s", name, handler.Name, handler.Position)
 		}
 
 		handler = current
@@ -260,9 +264,9 @@ func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error
 
 	current := parsed.values["cache"]
 	if current != nil {
-		policy, err := parseCache(current.args[0].value)
+		policy, err := parseCache(current.Args[0].Value)
 		if err != nil {
-			return nil, diagnostic(current.position, "%v", err)
+			return nil, diagnostic(current.Position, "%v", err)
 		}
 
 		route.cache = policy
@@ -270,26 +274,26 @@ func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error
 
 	current = parsed.values["index"]
 	if current != nil {
-		route.indexes = make([]string, 0, len(current.args))
+		route.indexes = make([]string, 0, len(current.Args))
 
-		for _, argument := range current.args {
-			if argument.value == "." || argument.value == ".." || !filepath.IsLocal(argument.value) || strings.ContainsAny(argument.value, "/\\\x00:") {
-				return nil, diagnostic(argument.position, "index must be a local filename")
+		for _, argument := range current.Args {
+			if argument.Value == "." || argument.Value == ".." || !filepath.IsLocal(argument.Value) || strings.ContainsAny(argument.Value, "/\\\x00:") {
+				return nil, diagnostic(argument.Position, "index must be a local filename")
 			}
 
-			route.indexes = append(route.indexes, argument.value)
+			route.indexes = append(route.indexes, argument.Value)
 		}
 	}
 
 	current = parsed.values["proxy_path"]
 	if current != nil {
 		if route.kind != Proxy {
-			return nil, diagnostic(current.position, "proxy_path requires proxy_pass")
+			return nil, diagnostic(current.Position, "proxy_path requires proxy_pass")
 		}
 
-		normalized, err := configuredPath(current.args[0].value)
+		normalized, err := configuredPath(current.Args[0].Value)
 		if err != nil {
-			return nil, diagnostic(current.position, "proxy_path: %v", err)
+			return nil, diagnostic(current.Position, "proxy_path: %v", err)
 		}
 
 		route.proxyPath = normalized
@@ -297,9 +301,9 @@ func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error
 
 	current = parsed.values["proxy_buffer"]
 	if current != nil {
-		value := current.args[0].value
+		value := current.Args[0].Value
 		if route.kind != Proxy || value != "on" && value != "off" {
-			return nil, diagnostic(current.position, "proxy_buffer requires proxy_pass and on or off")
+			return nil, diagnostic(current.Position, "proxy_buffer requires proxy_pass and on or off")
 		}
 
 		route.buffer = value == "on"
@@ -309,42 +313,42 @@ func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error
 }
 
 func setHandler(route *Route, current *statement) error {
-	value := current.args[0].value
+	value := current.Args[0].Value
 
-	switch current.name {
+	switch current.Name {
 	case "root", "alias":
 		if value == "" || strings.ContainsRune(value, 0) {
-			return diagnostic(current.position, "empty or invalid filesystem path")
+			return diagnostic(current.Position, "empty or invalid filesystem path")
 		}
 
 		route.kind = StaticRoot
 
-		if current.name == "alias" {
+		if current.Name == "alias" {
 			route.kind = StaticAlias
 		}
 
-		route.path = resolveFile(current.position.File, value)
+		route.path = resolveFile(current.Position.File, value)
 	case "proxy_pass":
 		upstream, err := url.Parse(value)
 		if err != nil {
-			return diagnostic(current.position, "invalid proxy_pass URL: %v", err)
+			return diagnostic(current.Position, "invalid proxy_pass URL: %v", err)
 		}
 
 		if upstream.Scheme != "http" && upstream.Scheme != "https" || upstream.Hostname() == "" || upstream.User != nil || upstream.RawQuery != "" || upstream.ForceQuery || strings.Contains(value, "#") || upstream.Opaque != "" {
-			return diagnostic(current.position, "proxy_pass requires an HTTP(S) URL without credentials, query, or fragment")
+			return diagnostic(current.Position, "proxy_pass requires an HTTP(S) URL without credentials, query, or fragment")
 		}
 
 		port := upstream.Port()
 		if port != "" {
 			number, err := strconv.ParseUint(port, 10, 16)
 			if err != nil || number == 0 {
-				return diagnostic(current.position, "invalid upstream port")
+				return diagnostic(current.Position, "invalid upstream port")
 			}
 		}
 
 		normalized, err := NormalizePath(upstream.Path)
 		if err != nil {
-			return diagnostic(current.position, "invalid upstream path: %v", err)
+			return diagnostic(current.Position, "invalid upstream path: %v", err)
 		}
 
 		upstream.Path = normalized
@@ -355,19 +359,19 @@ func setHandler(route *Route, current *statement) error {
 	case "return":
 		status, err := strconv.Atoi(value)
 		if err != nil || status < 200 || status > 599 || http.StatusText(status) == "" {
-			return diagnostic(current.position, "return requires a standard final HTTP status (200-599)")
+			return diagnostic(current.Position, "return requires a standard final HTTP status (200-599)")
 		}
 
 		route.kind = Return
 		route.status = status
 		route.body = http.StatusText(status) + "\n"
 
-		if len(current.args) == 2 {
+		if len(current.Args) == 2 {
 			if status == 204 || status == 205 || status == 304 {
-				return diagnostic(current.position, "status %d cannot have a response body", status)
+				return diagnostic(current.Position, "status %d cannot have a response body", status)
 			}
 
-			route.body = current.args[1].value
+			route.body = current.Args[1].Value
 		}
 
 		if status == 204 || status == 205 || status == 304 {
@@ -381,32 +385,32 @@ func setHandler(route *Route, current *statement) error {
 func locationPattern(block *statement) (string, string, error) {
 	mode := ""
 
-	if len(block.args) == 0 || len(block.args) > 2 {
-		return "", "", diagnostic(block.position, "location requires a path with an optional =, ^~, or ~ modifier")
+	if len(block.Args) == 0 || len(block.Args) > 2 {
+		return "", "", diagnostic(block.Position, "location requires a path with an optional =, ^~, or ~ modifier")
 	}
 
-	argument := block.args[0]
+	argument := block.Args[0]
 
-	if len(block.args) == 2 {
-		mode = argument.value
-		argument = block.args[1]
+	if len(block.Args) == 2 {
+		mode = argument.Value
+		argument = block.Args[1]
 
 		if mode != "=" && mode != "^~" && mode != "~" {
-			return "", "", diagnostic(block.position, "unsupported location modifier %q", mode)
+			return "", "", diagnostic(block.Position, "unsupported location modifier %q", mode)
 		}
 	}
 
 	if mode == "~" {
-		if !argument.quoted {
-			return "", "", diagnostic(argument.position, "regular expressions must be quoted")
+		if !argument.Quoted {
+			return "", "", diagnostic(argument.Position, "regular expressions must be quoted")
 		}
 
-		return mode, argument.value, nil
+		return mode, argument.Value, nil
 	}
 
-	pattern, err := configuredPath(argument.value)
+	pattern, err := configuredPath(argument.Value)
 	if err != nil {
-		return "", "", diagnostic(argument.position, "invalid location path: %v", err)
+		return "", "", diagnostic(argument.Position, "invalid location path: %v", err)
 	}
 
 	return mode, pattern, nil
@@ -434,15 +438,15 @@ func directiveSpec(name, scope string) (int, int, bool) {
 }
 
 func compileHeader(current *statement) (headerOperation, error) {
-	name := current.args[0].value
+	name := current.Args[0].Value
 	if name == "" {
-		return headerOperation{}, diagnostic(current.position, "empty header name")
+		return headerOperation{}, diagnostic(current.Position, "empty header name")
 	}
 
 	for _, character := range name {
 		valid := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", character)
 		if !valid {
-			return headerOperation{}, diagnostic(current.position, "invalid header name %q", name)
+			return headerOperation{}, diagnostic(current.Position, "invalid header name %q", name)
 		}
 	}
 
@@ -450,22 +454,22 @@ func compileHeader(current *statement) (headerOperation, error) {
 
 	switch name {
 	case "Content-Length", "Transfer-Encoding", "Connection", "Trailer", "Upgrade", "Keep-Alive", "Proxy-Connection":
-		return headerOperation{}, diagnostic(current.position, "%s is controlled by the HTTP transport", name)
+		return headerOperation{}, diagnostic(current.Position, "%s is controlled by the HTTP transport", name)
 	}
 
 	value := ""
 
-	if len(current.args) == 2 {
-		value = current.args[1].value
+	if len(current.Args) == 2 {
+		value = current.Args[1].Value
 
 		for _, character := range value {
 			if character < 32 && character != '\t' || character == 127 {
-				return headerOperation{}, diagnostic(current.position, "invalid control character in header value")
+				return headerOperation{}, diagnostic(current.Position, "invalid control character in header value")
 			}
 		}
 	}
 
-	return headerOperation{name: name, value: value, kind: current.name}, nil
+	return headerOperation{name: name, value: value, kind: current.Name}, nil
 }
 
 func configuredPath(value string) (string, error) {
