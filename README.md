@@ -1,4 +1,8 @@
-# rotx
+<picture>
+	<source media="(prefers-color-scheme: dark)" srcset=".github/banner.svg">
+	<source media="(prefers-color-scheme: light)" srcset=".github/banner-light.svg">
+	<img alt="rotx — Tor reverse proxy, with an onion's roots connecting to a file and an upstream server" src=".github/banner-light.svg">
+</picture>
 
 rotx is a lightweight Tor reverse proxy and static file server, designed for high performance and zero-allocation routing. It sits between Tor and local files or HTTP services, serving multiple onion addresses with separate routes for each.
 

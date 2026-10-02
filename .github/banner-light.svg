@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="320" viewBox="0 0 1120 320" fill="none" role="img" aria-labelledby="title description">
+	<title id="title">rotx</title>
+	<desc id="description">An onion forms the o in rotx. Its roots branch out to a file and an upstream server.</desc>
+	<style>
+		.letter { stroke: #292531; }
+		.onion { stroke: #79519f; }
+		.root { stroke: #947da9; }
+		.destination { stroke: #696072; }
+		.caption { fill: #696072; }
+	</style>
+	<!-- The onion's roots connect the wordmark to the two serving targets. -->
+	<g class="root" stroke-width="3.5" stroke-linecap="round">
+		<path d="M465 214 C465 240 438 252 407 252 H205 C185 252 169 236 169 216 V211"/>
+		<path d="M477 214 C477 240 504 252 535 252 H915 C935 252 951 236 951 216 V211"/>
+	</g>
+	<!-- Custom lettering keeps the wordmark independent of installed fonts. -->
+	<g class="letter" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M320 122 V210 M320 155 C320 136 343 120 371 122"/>
+		<path d="M585 79 V176 Q585 210 615 210 H633 M553 122 H627"/>
+		<path d="M678 122 L764 210 M764 122 L678 210"/>
+	</g>
+	<g class="onion" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M471 72 C458 62 457 49 461 36 M471 72 C480 57 491 50 493 35" stroke-width="6"/>
+		<path d="M471 72 C466 107 409 116 409 160 C409 193 434 214 471 214 C508 214 533 193 533 160 C533 116 484 108 471 72 Z" stroke-width="12"/>
+		<path d="M471 108 C458 131 430 137 430 163 C430 185 447 199 471 199 C495 199 512 185 512 163 C512 137 484 131 471 108 Z" stroke-width="5"/>
+		<path d="M471 139 C462 153 452 157 452 169 C452 181 460 188 471 188 C482 188 490 181 490 169 C490 157 480 153 471 139 Z" stroke-width="4"/>
+	</g>
+	<g class="destination" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+		<g aria-label="Static file">
+			<path d="M140 137 H179 L198 156 V211 H140 Z M179 137 V156 H198"/>
+			<path d="M154 177 H184 M154 190 H176"/>
+		</g>
+		<g aria-label="Upstream server">
+			<path d="M922 139 H980 V211 H922 Z M922 175 H980"/>
+			<path d="M950 157 H966 M950 193 H966"/>
+			<circle cx="936" cy="157" r="2"/>
+			<circle cx="936" cy="193" r="2"/>
+		</g>
+	</g>
+	<text class="caption" x="560" y="299" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="22">Tor reverse proxy</text>
+</svg>
