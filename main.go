@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	ConfigPath       = "config.yml"
+	ConfigPath       = "rotx.conf"
 	TorDataDirectory = "data/tor"
 )
 
