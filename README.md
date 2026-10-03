@@ -13,11 +13,13 @@ The configuration is nginx-style, with a smaller set of features and some intent
 - [Running](#running)
 - [Configuration](#configuration)
 - [Config syntax](#config-syntax)
+- [Onion defenses and authorization](#onion-defenses-and-authorization)
 - [Routing](#routing)
 - [Static files](#static-files)
 - [Reverse proxy](#reverse-proxy)
 - [Responses and headers](#responses-and-headers)
 - [Caching](#caching)
+- [Compression](#compression)
 - [Development](#development)
 
 ## Running
@@ -89,6 +91,18 @@ All three are required. rotx validates the onion checksum and checks that the na
 
 Locations inherit their server's settings, never another location's. A `root`, `alias`, `proxy_pass` or `return` directive replaces the inherited handler; only one of these may appear in a block.
 
+## Onion defenses and authorization
+
+| Directive | Scope | Behavior |
+| --- | --- | --- |
+| `pow on/off` | http | Enable Tor v3 proof-of-work defenses for every onion service. Default: `off`. |
+| `client_key path` | server | Load one authorized client's public key. Repeatable. |
+| `client_keys directory` | server | Load immediate `*.auth` files from a directory, without recursion. Repeatable. |
+
+Native builds always include Tor's PoW module. Enabling `pow` fails startup if the linked library lacks support or Tor rejects the service configuration.
+
+Client key files contain `descriptor:x25519:<52-character base32 public key>`. Both client directives combine into one deduplicated authorization list. Paths resolve relative to the declaring configuration file. Only public keys belong on the server; clients retain their corresponding private authorization keys. An unreadable or invalid key, missing directory or explicitly configured directory without any `*.auth` files is a configuration error. Authorization is validated and loaded once; changing keys requires a restart. Without either directive the onion service is public.
+
 ## Routing
 
 The request's `.onion` host selects the server. Location matching then uses the decoded path, with repeated slashes and dot segments normalized and the query string excluded.
@@ -123,8 +137,11 @@ Configured roots and aliases are checked while loading configuration, before Tor
 | `proxy_pass URL` | location | HTTP(S) upstream, optionally with a base path. Credentials, query strings and fragments are not accepted. |
 | `proxy_path /path` | location | Replace the entire outgoing path, including any upstream base path. |
 | `proxy_buffer on/off` | location | Buffer the full response body in memory instead of streaming. Default: `off`. |
+| `proxy_compress on/off` | location | Apply the configured compression algorithms to eligible upstream responses. Default: `off`. |
 
-`proxy_path` and `proxy_buffer` require `proxy_pass`. Request query strings are preserved.
+All `proxy_` directives are location-only; `proxy_path`, `proxy_buffer` and `proxy_compress` require `proxy_pass`. Request query strings are preserved.
+
+`proxy_compress on` streams compression with bounded encoder working memory and propagates flushes. Adding `proxy_buffer on` buffers the entire original upstream body first, then compresses it when sending the response. Already encoded responses pass through unchanged. Partial responses, bodyless statuses, `text/event-stream` and requests or responses with `Cache-Control: no-transform` bypass compression. Transformed responses lose the original content length and integrity digests; strong upstream ETags become weak. Proxy response bodies are never stored in the compression cache.
 
 Unlike nginx's prefix-replacement behavior, `proxy_pass` joins its base path with the **entire** request path. For example, `/api/users` with `proxy_pass http://127.0.0.1:8080/base;` becomes `/base/api/users`.
 
@@ -138,8 +155,11 @@ The proxy reuses upstream connections and forwards methods, bodies, status codes
 | `header_set name value` | http/server/location | Replace all response header values. |
 | `header_add name value` | http/server/location | Append a response header value. |
 | `header_unset name` | http/server/location | Remove a response header. |
+| `server_tokens auto/off/full/keep` | http/server/location | Control the `Server` header. Default: `auto`. |
 
-Header operations run in declaration order, from `http` to `server` to `location`, after cache processing. They also apply to generated error responses. Connection and framing headers are reserved for the transport. Statuses 204, 205 and 304 cannot have an explicit body.
+`server_tokens auto` sets `Server: rotx`; `full` sets `Server: rotx/v<version>` (or `rotx/dev` for development builds). `off` removes the header, including upstream values. `keep` preserves an existing upstream value and adds nothing when absent. This policy inherits from HTTP to server to location.
+
+Header operations run in declaration order, from `http` to `server` to `location`, after cache processing and the server-token policy. `header_unset Server` and `header_set Server custom` therefore override that policy. These rules also apply to generated error responses. Connection and framing headers are reserved for the transport. Statuses 204, 205 and 304 cannot have an explicit body.
 
 ## Caching
 
@@ -152,13 +172,29 @@ Header operations run in declaration order, from `http` to `server` to `location
 | `on` | Set `Cache-Control: public, max-age=3600`. |
 | `30d`, `12h`, `5m`, `30s` | Set a public max-age using a positive integer and one unit. |
 
-Enabled static caching adds `Last-Modified` and a weak ETag from file metadata. Matching conditional GET/HEAD requests return 304. Proxy validation is left to the upstream. Header directives can override or remove cache headers.
+Enabled static caching adds `Last-Modified` and a weak ETag from file metadata for uncompressed files. Compressed static representations supply their own validators. Matching conditional GET/HEAD requests return 304. Proxy validation is left to the upstream. Header directives can override or remove cache headers.
+
+## Compression
+
+| Directive | Scope | Behavior |
+| --- | --- | --- |
+| `compress zstd gzip brotli` | http/server/location | Enable the listed algorithms in preference order. Default: `off`; `compress off` resets inheritance. |
+| `compress_cache off/file/memory` | http/server/location | Cache dynamically compressed static files. Default: `off`. |
+| `compress_memory_limit size` | http | Shared memory-cache byte limit. Default: `32M`; accepts bytes or positive `K`, `M`, `G` binary units. |
+
+Compression settings inherit from HTTP to server to location. Negotiation honors `Accept-Encoding` quality values and exclusions; directive order breaks equal-quality ties. `brotli` uses the standard `br` response token. An absent header selects the original representation. Requests rejecting every available representation receive 406. Proxy routes require explicit `proxy_compress on`; `compress off` still disables their compression.
+
+For static files, rotx chooses the encoding first, then looks for a companion file: `.gz`, `.zst` (then `.zstd`) or `.br`. A lower-priority companion never displaces the preferred encoding. If no matching companion exists, rotx compresses the original. Companions stay inside the configured filesystem boundary and should be updated alongside their original files. Responses retain the original file's MIME type and include `Vary: Accept-Encoding`. HEAD, conditional requests and single byte ranges operate on the selected encoded representation, with representation-specific ETags. Multi-range requests receive the complete encoded representation. `Cache-Control: no-transform` requests select the original representation.
+
+With `compress_cache off`, dynamic representations are regenerated into temporary files on each request and removed afterward; this bounds working memory and permits encoded byte ranges. `memory` keeps an LRU shared by all routes. Its limit counts retained compressed data only: active readers, transient results and encoder working memory are additional. Entries larger than the limit are served without retention. `file` stores content-SHA256-named variants such as `<hash>.br` in `./data/cache/compress`, plus atomic metadata records mapping source paths, sizes and modification times to hashes. Unchanged sources are served without rereading or rehashing their contents. Metadata changes trigger regeneration; deployments must update file size or modification time when changing contents. Same-source generation is coordinated across concurrent requests.
+
+The disk cache persists across restarts and has no automatic size limit or eviction. Remove stale cache files manually when needed. The `cache` directive controls HTTP caching headers independently of `compress_cache`.
 
 ## Development
 
 Use the Go version declared in [go.mod](go.mod). The executable requires CGO and the bundled Tor native archive for its target. Supported targets are Windows and Linux on amd64 and arm64.
 
-`tools/tor/build.sh` rebuilds the native archives and applies `tools/tor/logging.patch`. This small patch attaches the host callback to Tor's console handlers, including handlers replaced during log reconfiguration. Normal file logging and signal-safe diagnostics retain their original destinations.
+`tools/tor/build.sh` rebuilds the native archives with Zig 0.17.0 and Tor's GPL PoW module and applies `tools/tor/logging.patch`. This small patch attaches the host callback to Tor's console handlers, including handlers replaced during log reconfiguration. Normal file logging and signal-safe diagnostics retain their original destinations.
 
 ```sh
 go build .

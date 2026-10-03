@@ -23,6 +23,7 @@ type StaticTarget struct {
 // Static handlers set metadata before writing their status or body. Error is an
 // optional application-level reporter, e.g. a closure using the global logger.
 type Handoffs struct {
+	Version   string
 	Transport http.RoundTripper
 	Proxy     func(*Response, *http.Request, url.URL) error
 	Static    func(*Response, *http.Request, StaticTarget) error
@@ -30,9 +31,11 @@ type Handoffs struct {
 }
 
 type Router struct {
-	handoffs  Handoffs
-	transport http.RoundTripper
-	config    *config.Config
+	handoffs    Handoffs
+	transport   http.RoundTripper
+	config      *config.Config
+	serverFull  string
+	compression compressionCache
 }
 
 type streamError struct {
@@ -76,6 +79,8 @@ func (r *Router) Handle(writer http.ResponseWriter, request *http.Request) error
 	if err != nil {
 		response := newResponse(writer, request, r.config.Fallback(name))
 
+		response.serverFull = r.serverFull
+
 		writeStatus(response, request, http.StatusBadRequest, "Bad Request\n")
 
 		response.finish()
@@ -86,6 +91,8 @@ func (r *Router) Handle(writer http.ResponseWriter, request *http.Request) error
 	route := r.config.Match(name, requestPath)
 	if route == nil {
 		response := newResponse(writer, request, r.config.Fallback(""))
+
+		response.serverFull = r.serverFull
 
 		writeStatus(response, request, http.StatusNotFound, "Not Found\n")
 
@@ -106,9 +113,13 @@ func (r *Router) Handle(writer http.ResponseWriter, request *http.Request) error
 
 	response := newResponse(writer, request, route)
 
+	response.serverFull = r.serverFull
+
 	err = r.dispatch(response, request, route, requestPath)
 	if err != nil {
 		if response.committed {
+			response.abortCompression()
+
 			return &streamError{err: err}
 		}
 
@@ -154,7 +165,7 @@ func (r *Router) dispatch(response *Response, request *http.Request, route *conf
 			return r.handoffs.Static(response, request, StaticTarget{Path: target, Route: route})
 		}
 
-		return serveStatic(response, request, StaticTarget{Path: target, Route: route})
+		return r.serveStatic(response, request, StaticTarget{Path: target, Route: route})
 	case config.Return:
 		return writeStatus(response, request, route.Status(), route.Body())
 	default:
@@ -168,7 +179,22 @@ func New(compiled *config.Config, handoffs Handoffs) *Router {
 		transport = newTransport()
 	}
 
-	return &Router{config: compiled, handoffs: handoffs, transport: transport}
+	version := handoffs.Version
+	if version == "" {
+		version = "dev"
+	}
+
+	if version != "dev" && !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
+
+	return &Router{
+		config:      compiled,
+		handoffs:    handoffs,
+		transport:   transport,
+		serverFull:  "rotx/" + version,
+		compression: compressionCache{limit: compiled.CompressMemoryLimit(), directory: compressionCacheDirectory},
+	}
 }
 
 func onionHost(host string) string {

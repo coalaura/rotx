@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -53,23 +54,27 @@ type Identity struct {
 	Name           string
 	PrivateKeyPath string
 	PublicKeyPath  string
+	ClientKeys     []string
 }
 
 // Route is immutable after compilation and safe for concurrent use.
 type Route struct {
-	upstream    url.URL
-	cache       CachePolicy
-	headers     []headerPlan
-	indexes     []string
-	path        string
-	proxyPath   string
-	body        string
-	aliasPrefix string
-	position    Position
-	status      int
-	kind        HandlerKind
-	buffer      bool
-	aliasExact  bool
+	upstream      url.URL
+	cache         CachePolicy
+	headers       []headerPlan
+	indexes       []string
+	path          string
+	proxyPath     string
+	body          string
+	aliasPrefix   string
+	position      Position
+	status        int
+	kind          HandlerKind
+	buffer        bool
+	aliasExact    bool
+	compression   CompressionPolicy
+	tokens        ServerTokens
+	proxyCompress bool
 }
 
 type regexRoute struct {
@@ -96,9 +101,31 @@ type server struct {
 // Config contains a fully validated routing table. Match expects a normalized,
 // decoded URL path; HTTP request normalization is performed by package router.
 type Config struct {
-	servers    map[string]*server
-	identities []Identity
-	fallback   *Route
+	servers             map[string]*server
+	identities          []Identity
+	fallback            *Route
+	pow                 bool
+	compressMemoryLimit int64
+}
+
+func (r *Route) Compression() CompressionPolicy {
+	return r.compression
+}
+
+func (r *Route) ServerTokens() ServerTokens {
+	return r.tokens
+}
+
+func (r *Route) ProxyCompress() bool {
+	return r.proxyCompress
+}
+
+func (config *Config) PoW() bool {
+	return config.pow
+}
+
+func (config *Config) CompressMemoryLimit() int64 {
+	return config.compressMemoryLimit
 }
 
 func (r *Route) Kind() HandlerKind {
@@ -231,6 +258,8 @@ func (config *Config) ServerCount() int {
 func (config *Config) Identities() iter.Seq[Identity] {
 	return func(yield func(Identity) bool) {
 		for _, identity := range config.identities {
+			identity.ClientKeys = slices.Clone(identity.ClientKeys)
+
 			if !yield(identity) {
 				return
 			}
@@ -348,7 +377,7 @@ func NormalizePath(value string) (string, error) {
 		return "/", nil
 	}
 
-	if value[0] != '/' || strings.ContainsAny(value, "\\\x00\r\n") {
+	if value[0] != '/' || strings.HasPrefix(value, "//") || strings.ContainsAny(value, "\\\x00\r\n") {
 		return "", fmt.Errorf("invalid URL path")
 	}
 

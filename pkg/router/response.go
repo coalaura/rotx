@@ -39,6 +39,9 @@ type Response struct {
 	committed   bool
 	suppress    bool
 	hasMetadata bool
+	serverFull  string
+	encoding    config.Encoding
+	encoder     *compressor
 }
 
 func (r *Response) Header() http.Header {
@@ -82,7 +85,7 @@ func (r *Response) WriteHeader(status int) {
 		if !r.route.Buffered() {
 			headers := r.headers.Clone()
 
-			r.route.ApplyHeaders(headers)
+			r.applyHeaders(headers)
 
 			copyHeaders(r.writer.Header(), headers)
 
@@ -119,6 +122,15 @@ func (r *Response) Write(body []byte) (int, error) {
 		return r.body.Write(body)
 	}
 
+	if r.encoding != config.IdentityEncoding {
+		written, err := r.writeCompressed(body)
+		if err != nil {
+			r.err = err
+		}
+
+		return written, err
+	}
+
 	written, err := r.writer.Write(body)
 	if err != nil {
 		r.err = err
@@ -146,6 +158,10 @@ func (r *Response) WriteString(body string) (int, error) {
 		return r.body.WriteString(body)
 	}
 
+	if r.encoding != config.IdentityEncoding {
+		return r.Write([]byte(body))
+	}
+
 	written, err := io.WriteString(r.writer, body)
 	if err != nil {
 		r.err = err
@@ -165,7 +181,12 @@ func (r *Response) FlushError() error {
 		r.WriteHeader(http.StatusOK)
 	}
 
-	err := http.NewResponseController(r.writer).Flush()
+	err := r.flushCompression()
+	if err != nil {
+		return err
+	}
+
+	err = http.NewResponseController(r.writer).Flush()
 	if err != nil && !errors.Is(err, http.ErrNotSupported) {
 		r.err = err
 	}
@@ -179,6 +200,8 @@ func (r *Response) Flush() {
 
 func (r *Response) prepare() {
 	headers := r.snapshot
+
+	r.prepareProxyCompression()
 
 	cache := r.route.Cache()
 	if cache.Mode != config.CacheAuto {
@@ -204,6 +227,24 @@ func (r *Response) prepare() {
 		if r.status == http.StatusNotModified {
 			headers.Del("Content-Type")
 		}
+	}
+
+	r.applyHeaders(headers)
+}
+
+func (r *Response) applyHeaders(headers http.Header) {
+	switch r.route.ServerTokens() {
+	case config.TokensAuto:
+		headers.Set("Server", "rotx")
+	case config.TokensOff:
+		headers.Del("Server")
+	case config.TokensFull:
+		value := r.serverFull
+		if value == "" {
+			value = "rotx/dev"
+		}
+
+		headers.Set("Server", value)
 	}
 
 	r.route.ApplyHeaders(headers)
@@ -243,11 +284,27 @@ func (r *Response) finish() error {
 		r.commit()
 
 		if !r.suppress && r.request.Method != http.MethodHead {
-			_, err := r.body.WriteTo(r.writer)
+			var err error
+
+			if r.encoding != config.IdentityEncoding {
+				_, err = r.writeCompressed(r.body.Bytes())
+			} else {
+				_, err = r.body.WriteTo(r.writer)
+			}
+
 			if err != nil {
+				r.abortCompression()
+
 				return err
 			}
 		}
+	}
+
+	err := r.finishCompression()
+	if err != nil {
+		r.abortCompression()
+
+		return err
 	}
 
 	for name, values := range r.trailers {
@@ -267,6 +324,7 @@ func (r *Response) fail(status int) {
 	r.trailers = nil
 	r.suppress = false
 	r.hasMetadata = false
+	r.encoding = config.IdentityEncoding
 
 	r.body.Reset()
 

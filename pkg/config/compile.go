@@ -15,6 +15,7 @@ type scope struct {
 	values   map[string]*statement
 	headers  []headerOperation
 	children []*statement
+	clients  []*statement
 }
 
 func compileConfig(statements []statement, position Position) (*Config, error) {
@@ -42,10 +43,32 @@ func compileConfig(statements []statement, position Position) (*Config, error) {
 		indexes: []string{"index.html"},
 	}
 
+	err = compileResponsePolicy(&base, &global)
+	if err != nil {
+		return nil, err
+	}
+
 	config := &Config{
-		servers:    make(map[string]*server, len(global.children)),
-		identities: make([]Identity, 0, len(global.children)),
-		fallback:   &base,
+		servers:             make(map[string]*server, len(global.children)),
+		identities:          make([]Identity, 0, len(global.children)),
+		fallback:            &base,
+		compressMemoryLimit: 32 << 20,
+	}
+
+	current := global.values["pow"]
+	if current != nil {
+		config.pow, err = parseToggle(current)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	current = global.values["compress_memory_limit"]
+	if current != nil {
+		config.compressMemoryLimit, err = parseMemoryLimit(current)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	for _, block := range global.children {
@@ -96,6 +119,11 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 	err = validateIdentity(identity.Name, identity.PrivateKeyPath, identity.PublicKeyPath)
 	if err != nil {
 		return "", nil, diagnostic(nameDirective.Position, "%v", err)
+	}
+
+	identity.ClientKeys, err = loadClientKeys(parsed.clients)
+	if err != nil {
+		return "", nil, err
 	}
 
 	fallback, err := compileRoute(block, &parsed, parent)
@@ -229,6 +257,12 @@ func readScope(block *statement, kind string) (scope, error) {
 			continue
 		}
 
+		if current.Name == "client_key" || current.Name == "client_keys" {
+			parsed.clients = append(parsed.clients, current)
+
+			continue
+		}
+
 		previous := parsed.values[current.Name]
 		if previous != nil {
 			return parsed, diagnostic(current.Position, "duplicate %s; first declared at %s", current.Name, previous.Position)
@@ -247,6 +281,11 @@ func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error
 
 	route.position = block.Position
 	route.headers = compileHeaderPlans(parent.headers, parsed.headers)
+
+	err := compileResponsePolicy(&route, parsed)
+	if err != nil {
+		return nil, err
+	}
 
 	handlers := []string{"root", "alias", "proxy_pass", "return"}
 
@@ -317,6 +356,18 @@ func compileRoute(block *statement, parsed *scope, parent *Route) (*Route, error
 		}
 
 		route.buffer = value == "on"
+	}
+
+	current = parsed.values["proxy_compress"]
+	if current != nil {
+		if route.kind != Proxy {
+			return nil, diagnostic(current.Position, "proxy_compress requires proxy_pass")
+		}
+
+		route.proxyCompress, err = parseToggle(current)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &route, nil
@@ -432,14 +483,20 @@ func directiveSpec(name, scope string) (int, int, bool) {
 		return 2, 2, true
 	case "header_unset":
 		return 1, 1, true
-	case "name", "key_private", "key_public":
+	case "name", "key_private", "key_public", "client_key", "client_keys":
 		return 1, 1, scope == "server"
 	case "root", "alias", "cache":
 		return 1, 1, scope == "server" || scope == "location"
 	case "index":
 		return 1, math.MaxInt, scope == "server" || scope == "location"
-	case "proxy_pass", "proxy_path", "proxy_buffer":
+	case "proxy_pass", "proxy_path", "proxy_buffer", "proxy_compress":
 		return 1, 1, scope == "location"
+	case "pow", "compress_memory_limit":
+		return 1, 1, scope == "http"
+	case "server_tokens", "compress_cache":
+		return 1, 1, true
+	case "compress":
+		return 1, 3, true
 	case "return":
 		return 1, 2, scope == "location"
 	}

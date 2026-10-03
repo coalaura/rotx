@@ -22,6 +22,7 @@ const (
 type Options struct {
 	DataDirectory string
 	LogLevel      string
+	PoW           bool
 
 	// Log receives timestamp-free Tor messages synchronously, including startup
 	// and shutdown logs. It must be concurrency-safe and must not call Tor APIs.
@@ -175,6 +176,10 @@ func Version() string {
 }
 
 func Start(options Options) (*Instance, error) {
+	if options.PoW && !Versions().PoW {
+		return nil, fmt.Errorf("embedded Tor lacks proof-of-work support")
+	}
+
 	if options.DataDirectory == "" {
 		return nil, fmt.Errorf("tor data directory is required")
 	}

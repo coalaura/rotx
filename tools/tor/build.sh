@@ -24,11 +24,10 @@ environment:
   TOR_CACHE_DIR=PATH   source tarball cache
   TOR_WORK_ROOT=PATH   temporary build root (default: /tmp)
   KEEP_WORK=1          retain temporary build trees after successful builds
-  TOR_ENABLE_POW=1     enable Tor onion-service PoW support (GPL build mode)
 
 The host only needs ordinary Unix CLI tools plus the exact Zig version pinned
 in tools/tor/versions.sh. No GCC, MinGW, CMake, or system development libraries
-are used.
+are used. Tor onion-service PoW support is always compiled in (GPL build mode).
 USAGE
 }
 

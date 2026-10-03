@@ -10,6 +10,35 @@ import (
 	"testing"
 )
 
+func TestStaticRedirectRejectsAuthorityPaths(t *testing.T) {
+	directory := t.TempDir()
+
+	writeFixture(t, directory, "outside.example/index.html", "index")
+
+	settings := fmt.Sprintf("root %q;", filepath.ToSlash(directory))
+	compiled, host := routerConfig(t, settings)
+
+	router := New(compiled, Handoffs{})
+
+	t.Cleanup(router.CloseIdleConnections)
+
+	paths := []string{"//outside.example", "///outside.example", "/%2foutside.example", "/%2Foutside.example", "/%5coutside.example", "/%2f%2foutside.example"}
+
+	for _, requestPath := range paths {
+		t.Run(requestPath, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://"+host+requestPath, nil)
+
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest || recorder.Header().Get("Location") != "" {
+				t.Fatalf("unsafe path: status=%d location=%q", recorder.Code, recorder.Header().Get("Location"))
+			}
+		})
+	}
+}
+
 func TestStaticServing(t *testing.T) {
 	directory := t.TempDir()
 
@@ -17,7 +46,8 @@ func TestStaticServing(t *testing.T) {
 	writeFixture(t, directory, "docs/home.html", "<h1>index</h1>")
 	writeFixture(t, directory, "empty/.keep", "")
 
-	settings := fmt.Sprintf(`
+	settings := fmt.Sprintf(
+		`
 		root %q;
 		index missing.html home.html;
 		cache on;
@@ -27,7 +57,14 @@ func TestStaticServing(t *testing.T) {
 		location = /directory { alias %q; }
 		location /uncached/ { alias %q; cache auto; }
 		location /private/ { alias %q; cache off; }
-	`, filepath.ToSlash(directory), filepath.ToSlash(directory), filepath.ToSlash(filepath.Join(directory, "hello.txt")), filepath.ToSlash(filepath.Join(directory, "docs")), filepath.ToSlash(directory), filepath.ToSlash(directory))
+		`,
+		filepath.ToSlash(directory),
+		filepath.ToSlash(directory),
+		filepath.ToSlash(filepath.Join(directory, "hello.txt")),
+		filepath.ToSlash(filepath.Join(directory, "docs")),
+		filepath.ToSlash(directory),
+		filepath.ToSlash(directory),
+	)
 
 	compiled, host := routerConfig(t, settings)
 

@@ -12,6 +12,7 @@ void rotx_tor_capture_logs(int enabled);
 void rotx_tor_free(rotx_tor *instance);
 
 const char *rotx_tor_version(void);
+int rotx_tor_has_pow(void);
 const char *rotx_openssl_version(void);
 const char *rotx_libevent_version(void);
 const char *rotx_zlib_version(void);

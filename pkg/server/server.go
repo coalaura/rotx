@@ -55,6 +55,8 @@ func Run(ctx context.Context, compiled *config.Config, options Options) error {
 		return fmt.Errorf("listen for Tor connections: %w", err)
 	}
 
+	options.Tor.PoW = compiled.PoW()
+
 	instance, err := tor.Start(options.Tor)
 	if err != nil {
 		listener.Close()
@@ -155,7 +157,9 @@ func serve(ctx context.Context, compiled *config.Config, options Options, instan
 			ID:         identity.Name,
 			Target:     target,
 			PrivateKey: private,
+			ClientKeys: identity.ClientKeys,
 			Port:       onionPort,
+			PoW:        compiled.PoW(),
 		}
 
 		_, err = instance.AddOnion(runContext, service)

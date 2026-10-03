@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/coalaura/rotx/pkg/config"
 )
 
 type proxyRequestBody struct {
@@ -175,6 +177,14 @@ func newTransport() *http.Transport {
 }
 
 func allowedTrailer(name string, response *Response) bool {
+	if response.encoding != config.IdentityEncoding && transformedTrailer(name) {
+		return false
+	}
+
+	if strings.EqualFold(name, "Server") && response.route.ServerTokens() != config.TokensKeep {
+		return false
+	}
+
 	return !protocolTrailer(name) && !response.route.ControlsHeader(name)
 }
 

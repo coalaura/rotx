@@ -20,7 +20,9 @@ type Service struct {
 	ID         string
 	Target     string
 	PrivateKey []byte
+	ClientKeys []string
 	Port       uint16
+	PoW        bool
 }
 
 type Onion struct {
@@ -37,21 +39,14 @@ func (instance *Instance) AddOnion(ctx context.Context, service Service) (*Onion
 		return nil, err
 	}
 
+	if service.PoW && !Versions().PoW {
+		return nil, fmt.Errorf("embedded Tor lacks proof-of-work support")
+	}
+
 	encodedLength := base64.StdEncoding.EncodedLen(len(service.PrivateKey))
-	encodedKey := make([]byte, encodedLength)
+	command := make([]byte, 0, encodedLength+len(service.Target)+128+len(service.ClientKeys)*66)
 
-	base64.StdEncoding.Encode(encodedKey, service.PrivateKey)
-
-	defer clear(encodedKey)
-
-	command := make([]byte, 0, len(encodedKey)+len(service.Target)+96)
-
-	command = append(command, "ADD_ONION ED25519-V3:"...)
-	command = append(command, encodedKey...)
-	command = append(command, " Port="...)
-	command = strconv.AppendUint(command, uint64(service.Port), 10)
-	command = append(command, ',')
-	command = append(command, service.Target...)
+	command = appendOnionCommand(command, service)
 
 	defer clear(command)
 
@@ -88,6 +83,12 @@ func (onion *Onion) CloseContext(ctx context.Context) error {
 }
 
 func validateService(service Service) error {
+	for _, key := range service.ClientKeys {
+		if len(key) != 52 || strings.Trim(key, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") != "" {
+			return fmt.Errorf("client authorization requires a base32 X25519 public key")
+		}
+	}
+
 	if len(service.ID) != 56 || strings.Trim(service.ID, "abcdefghijklmnopqrstuvwxyz234567") != "" {
 		return fmt.Errorf("onion service ID must be a lowercase 56-character v3 onion name without .onion")
 	}
@@ -116,4 +117,31 @@ func validateService(service Service) error {
 	}
 
 	return nil
+}
+
+func appendOnionCommand(command []byte, service Service) []byte {
+	command = append(command, "ADD_ONION ED25519-V3:"...)
+	command = base64.StdEncoding.AppendEncode(command, service.PrivateKey)
+	command = append(command, " Port="...)
+	command = strconv.AppendUint(command, uint64(service.Port), 10)
+	command = append(command, ',')
+	command = append(command, service.Target...)
+	command = append(command, " PoWDefensesEnabled="...)
+
+	if service.PoW {
+		command = append(command, '1')
+	} else {
+		command = append(command, '0')
+	}
+
+	if len(service.ClientKeys) > 0 {
+		command = append(command, " Flags=V3Auth"...)
+
+		for _, key := range service.ClientKeys {
+			command = append(command, " ClientAuthV3="...)
+			command = append(command, key...)
+		}
+	}
+
+	return command
 }

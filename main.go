@@ -50,6 +50,7 @@ func main() {
 			},
 		},
 		Handoffs: router.Handoffs{
+			Version: Version,
 			Error: func(request *http.Request, err error) {
 				log.Errorf("HTTP %s %s: %v\n", request.Method, request.URL.Path, err)
 			},

@@ -20,6 +20,10 @@ func TestLibraryVersions(t *testing.T) {
 		t.Fatalf("Tor version does not match the linked library: %q", info.Tor)
 	}
 
+	if !info.PoW {
+		t.Fatal("bundled Tor library must support proof-of-work defenses")
+	}
+
 	versions := []string{info.OpenSSL, info.Libevent, info.Zlib}
 
 	for _, version := range versions {

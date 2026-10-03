@@ -17,7 +17,6 @@ JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 CACHE_DIR="${TOR_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rotx-tor}"
 NATIVE_DIR="$ROOT_DIR/pkg/tor/native"
 KEEP_WORK="${KEEP_WORK:-0}"
-TOR_ENABLE_POW="${TOR_ENABLE_POW:-0}"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -54,11 +53,6 @@ check_tools() {
     if [[ "$actual_zig" != "$ZIG_VERSION" ]]; then
         printf 'wrong Zig version: have %s, require exactly %s\n' \
             "$actual_zig" "$ZIG_VERSION" >&2
-        exit 1
-    fi
-
-    if [[ "$TOR_ENABLE_POW" != "0" && "$TOR_ENABLE_POW" != "1" ]]; then
-        printf 'TOR_ENABLE_POW must be 0 or 1\n' >&2
         exit 1
     fi
 }
@@ -364,12 +358,6 @@ build_tor() {
 
     mkdir -p "$build_dir"
 
-    local pow_flags=(--disable-module-pow)
-    if [[ "$TOR_ENABLE_POW" == "1" ]]; then
-        # Tor's PoW module is only available in GPL-compatible builds.
-        pow_flags=(--enable-gpl)
-    fi
-
     (
         cd "$build_dir"
 
@@ -387,7 +375,8 @@ build_tor() {
                 --host="$host" \
                 --disable-module-relay \
                 --disable-module-dirauth \
-                "${pow_flags[@]}" \
+                --enable-gpl \
+                --enable-module-pow \
                 --disable-lzma \
                 --disable-zstd \
                 --disable-seccomp \
@@ -544,7 +533,7 @@ tor=$TOR_VERSION
 openssl=$OPENSSL_VERSION
 libevent=$LIBEVENT_VERSION
 zlib=$ZLIB_VERSION
-pow=$TOR_ENABLE_POW
+pow=1
 EOF_MANIFEST
 }
 
@@ -642,6 +631,10 @@ build_target() {
     extract "$CACHE_DIR/tor-${TOR_VERSION}.tar.gz" "$tor_source"
 
     patch --directory="$tor_source" --strip=1 --fuzz=0 < "$SCRIPT_DIR/logging.patch"
+
+    if [[ "$requested" == "windows/arm64" ]]; then
+        patch --directory="$tor_source" --strip=1 --fuzz=0 < "$SCRIPT_DIR/hashx-windows-arm64.patch"
+    fi
 
     printf '==> [%s] zlib %s\n' "$requested" "$ZLIB_VERSION"
 
@@ -749,7 +742,7 @@ build_target() {
     read -r -a compile_flags <<< "$cflags"
 
     "$compiler" "${compile_flags[@]}" \
-        -I"$prefix/include" -I"$openssl_prefix/include" \
+        -I"$prefix/include" -I"$openssl_prefix/include" -I"$tor_build" \
         -c "$SCRIPT_DIR/versions.c" -o "$versions_object"
     "$archiver" crsD "$versions_archive" "$versions_object"
     archives+=("$versions_archive")

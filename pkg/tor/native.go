@@ -220,6 +220,7 @@ func nativeVersions() LibraryVersions {
 		OpenSSL:  C.GoString(C.rotx_openssl_version()),
 		Libevent: C.GoString(C.rotx_libevent_version()),
 		Zlib:     C.GoString(C.rotx_zlib_version()),
+		PoW:      C.rotx_tor_has_pow() != 0,
 	}
 }
 

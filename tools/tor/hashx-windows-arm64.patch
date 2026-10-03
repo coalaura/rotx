@@ -1,0 +1,26 @@
+--- a/src/ext/equix/hashx/src/compiler_a64.c
++++ b/src/ext/equix/hashx/src/compiler_a64.c
+@@ -9,6 +9,10 @@
+ #include "virtual_memory.h"
+ #include "unreachable.h"
+ 
++#ifdef HASHX_WIN
++#include <windows.h>
++#endif
++
+ #define EMIT(p,x) do {           \
+         memcpy(p, x, sizeof(x)); \
+         p += sizeof(x);          \
+@@ -155,7 +159,11 @@
+ 	EMIT(pos, a64_epilogue);
+ 	if (!hashx_vm_rx(code, COMP_CODE_SIZE))
+ 		return false;
+-#ifdef __GNUC__
++#ifdef HASHX_WIN
++	/* Windows ARM64 has no compiler-runtime __clear_cache implementation. */
++	if (!FlushInstructionCache(GetCurrentProcess(), code, (SIZE_T)(pos - code)))
++		return false;
++#elif defined(__GNUC__)
+ 	__builtin___clear_cache((void*)code, (void*)pos);
+ #endif
+ 	return true;

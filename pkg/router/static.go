@@ -11,7 +11,7 @@ import (
 	"github.com/coalaura/rotx/pkg/config"
 )
 
-func serveStatic(response *Response, request *http.Request, target StaticTarget) error {
+func (r *Router) serveStatic(response *Response, request *http.Request, target StaticTarget) error {
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		response.Header().Set("Allow", "GET, HEAD")
 
@@ -80,7 +80,7 @@ func serveStatic(response *Response, request *http.Request, target StaticTarget)
 
 			defer file.Close()
 
-			return serveFile(response, request, file, metadata)
+			return r.serveRepresentation(response, request, indexRoot, filepath.Join(indexPrefix, filename), file, metadata)
 		}
 
 		return writeStatus(response, request, http.StatusNotFound, "Not Found\n")
@@ -97,7 +97,7 @@ func serveStatic(response *Response, request *http.Request, target StaticTarget)
 
 	defer file.Close()
 
-	return serveFile(response, request, file, metadata)
+	return r.serveRepresentation(response, request, root, name, file, metadata)
 }
 
 func openRegular(root *os.Root, name string) (*os.File, fs.FileInfo, error) {
@@ -141,14 +141,7 @@ func serveFile(response *Response, request *http.Request, file *os.File, info fs
 
 	// ServeContent handles MIME sniffing, HEAD, byte ranges, and preconditions.
 	// A zero modtime keeps cache auto/off from generating Last-Modified.
-	if values, present := request.Header["If-None-Match"]; present && (len(values) != 1 || values[0] == "") {
-		// ServeContent reads only the first header line and treats an empty
-		// value as absent. Preserve list semantics and If-None-Match precedence.
-		request = request.Clone(request.Context())
-
-		request.Header.Set("If-None-Match", strings.Join(values, ", "))
-		request.Header.Del("If-Modified-Since")
-	}
+	request = contentRequest(request)
 
 	http.ServeContent(response, request, info.Name(), modified, file)
 

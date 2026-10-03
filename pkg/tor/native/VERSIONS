@@ -1,6 +1,6 @@
-zig=0.16.0
+zig=0.17.0
 tor=0.4.9.13
 openssl=3.5.9
 libevent=2.1.13-stable
 zlib=1.3.2
-pow=0
+pow=1
