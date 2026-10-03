@@ -74,6 +74,8 @@ http {
 
 Replace the placeholder with the lowercase, 56-character v3 onion name matching the key files. Each address gets its own `server` block inside `http`.
 
+For a complete deployment example using every directive, see [`examples/production/rotx.conf`](examples/production/rotx.conf) and its shared [`conf/headers.conf`](examples/production/conf/headers.conf). It combines a public website, cached assets, streaming + buffered proxies and a client-authorized operations dashboard.
+
 | Directive | Scope | Meaning |
 | --- | --- | --- |
 | `name value` | server | Onion name without `.onion`. |
