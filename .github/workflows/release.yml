@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     name: ${{ matrix.os }}/${{ matrix.arch }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
@@ -23,26 +23,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install pinned Zig for native library
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          source tools/tor/versions.sh
-
-          index="$(curl --fail --location --retry 5 --retry-all-errors https://ziglang.org/download/index.json)"
-          url="$(jq -er --arg version "$ZIG_VERSION" '.[$version]["x86_64-linux"].tarball' <<< "$index")"
-          sha256="$(jq -er --arg version "$ZIG_VERSION" '.[$version]["x86_64-linux"].shasum' <<< "$index")"
-          archive="$RUNNER_TEMP/zig.tar.xz"
-          directory="$RUNNER_TEMP/zig"
-
-          curl --fail --location --retry 5 --retry-all-errors --output "$archive" "$url"
-          printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check --status
-
-          mkdir -p "$directory"
-          tar -xf "$archive" --strip-components=1 -C "$directory"
-
-          echo "$directory" >> "$GITHUB_PATH"
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
 
       - name: Cache native source tarballs
         uses: actions/cache@v4
@@ -51,7 +35,7 @@ jobs:
           key: rotx-tor-sources-${{ hashFiles('tools/tor/versions.sh') }}
           restore-keys: rotx-tor-sources-
 
-      - name: Build native Tor library
+      - name: Build Tor
         shell: bash
         run: bash ./tools/tor/build.sh "${{ matrix.os }}/${{ matrix.arch }}"
 
@@ -102,7 +86,7 @@ jobs:
   release:
     name: Publish release
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Download artifacts
