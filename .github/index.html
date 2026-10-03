@@ -1,0 +1,1869 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+		<meta name="color-scheme" content="dark" />
+		<meta name="theme-color" content="#111113" />
+
+		<meta name="description" content="rotx is a Tor reverse proxy and static file server. Serve multiple onion addresses with embedded Tor and nginx-style configuration in one binary." />
+		<meta property="og:title" content="rotx - HTTP over Tor" />
+		<meta property="og:description" content="A Tor reverse proxy and static file server. Embedded Tor. One configuration. Your onion services." />
+		<meta property="og:type" content="website" />
+
+		<title>rotx - HTTP over Tor</title>
+
+		<link rel="icon" type="image/svg+xml"
+			href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='2' fill='%23111113'/%3E%3Cpath d='M16 8C15 13 6 14 6 21C6 27 26 27 26 21C26 14 18 13 16 8Z' fill='none' stroke='%23bba0dc' stroke-width='2'/%3E%3Cpath d='M16 13C15 17 11 18 11 22C11 26 21 26 21 22C21 18 17 17 16 13Z' fill='none' stroke='%23bba0dc'/%3E%3Cpath d='M16 8L13 3M16 8L20 2' stroke='%23a4bd86' stroke-width='2'/%3E%3C/svg%3E">
+
+		<style>
+			:root {
+				color-scheme: dark;
+				--background: #111113;
+				--surface: #17171b;
+				--code: #131316;
+				--cream: #f3f0e8;
+				--muted: #a8a7ad;
+				--subtle: #85838c;
+				--purple: #bba0dc;
+				--purple-hover: #cdb5e8;
+				--green: #a4bd86;
+				--line: #303035;
+				--mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+				font-size: 16px;
+				font-synthesis: none;
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			:focus-visible {
+				outline: 2px solid var(--green);
+				outline-offset: 5px;
+			}
+
+			::selection {
+				background: #614b78;
+				color: var(--cream);
+			}
+
+			html {
+				scroll-behavior: smooth;
+				scroll-padding-top: 35px;
+			}
+
+			body {
+				margin: 0;
+				background: var(--background);
+				color: var(--cream);
+				line-height: 1.65;
+				-webkit-font-smoothing: antialiased;
+			}
+
+			body,
+			h1,
+			h2,
+			h3,
+			p {
+				margin: 0;
+			}
+
+			a {
+				color: inherit;
+				text-decoration: none;
+				text-underline-offset: 5px;
+			}
+
+			a:hover {
+				color: var(--purple-hover);
+			}
+
+			button {
+				font: inherit;
+				cursor: pointer;
+			}
+
+			button,
+			a {
+				-webkit-tap-highlight-color: transparent;
+			}
+
+			a,
+			button {
+				touch-action: manipulation;
+			}
+
+			code {
+				font-family: var(--mono);
+				font-size: 0.9em;
+			}
+
+			p code {
+				color: #cbc3d4;
+			}
+
+			h1 {
+				font-size: clamp(4rem, 6.9vw, 6rem);
+				line-height: 1.045;
+				letter-spacing: -0.06em;
+				font-weight: 560;
+				margin-top: 26px;
+			}
+
+			h1 span {
+				color: var(--purple);
+			}
+
+			h2 {
+				font-size: clamp(1.85rem, 3vw, 2.35rem);
+				font-weight: 500;
+				line-height: 1.25;
+				letter-spacing: -0.035em;
+			}
+
+			h3 {
+				font-weight: 550;
+				font-size: 1.0625rem;
+				letter-spacing: -0.015em;
+				line-height: 1.5;
+			}
+
+			pre {
+				margin: 0;
+				overflow: auto;
+				tab-size: 4;
+				scrollbar-width: thin;
+				scrollbar-color: #514658 transparent;
+			}
+
+			pre code {
+				font: 0.875rem/1.8 var(--mono);
+				white-space: pre;
+			}
+
+			button,
+			pre,
+			.button {
+				border-radius: 2px;
+			}
+
+			[hidden] {
+				display: none !important;
+			}
+
+			.container {
+				width: min(1184px, calc(100% - 96px));
+				margin-inline: auto;
+			}
+
+			.site-header {
+				border-bottom: 1px solid var(--line);
+			}
+
+			.header-inner {
+				height: 92px;
+				display: flex;
+				align-items: center;
+				gap: 40px;
+			}
+
+			.brand {
+				display: flex;
+				align-items: center;
+				margin-right: auto;
+			}
+
+			.brand svg {
+				display: block;
+			}
+
+			.header-inner nav {
+				display: flex;
+				gap: 32px;
+				font-size: 0.9rem;
+				color: #b9b7bf;
+			}
+
+			.header-inner nav a {
+				padding-block: 12px;
+			}
+
+			.github-link {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				font-size: 0.9rem;
+				border-left: 1px solid var(--line);
+				padding-left: 32px;
+			}
+
+			.hero {
+				display: grid;
+				grid-template-columns: 1fr 1.04fr;
+				gap: 60px;
+				padding-top: 85px;
+				padding-bottom: 61px;
+				align-items: center;
+			}
+
+			.hero-copy {
+				padding-bottom: 32px;
+			}
+
+			.eyebrow {
+				font-family: var(--mono);
+				font-size: 0.75rem;
+				font-weight: 400;
+				letter-spacing: 0.085em;
+				color: var(--subtle);
+				line-height: 1.6;
+			}
+
+			.hero-copy>.eyebrow {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				color: var(--green);
+			}
+
+			.eyebrow-line {
+				width: 19px;
+				height: 1px;
+				background: var(--green);
+				flex-shrink: 0;
+			}
+
+			.hero-description {
+				font-size: 1.09rem;
+				color: var(--muted);
+				max-width: 405px;
+				line-height: 1.8;
+				margin-top: 29px;
+			}
+
+			.hero-description strong {
+				font-weight: 500;
+				color: var(--cream);
+			}
+
+			.hero-actions {
+				display: flex;
+				gap: 12px;
+				margin-top: 33px;
+			}
+
+			.button {
+				display: inline-flex;
+				justify-content: center;
+				align-items: center;
+				min-height: 46px;
+				padding: 9px 23px;
+				border: 1px solid var(--line);
+				font-size: 0.9rem;
+				font-weight: 550;
+				transition: background-color 0.15s, border-color 0.15s;
+			}
+
+			.button-primary {
+				background: var(--purple);
+				border-color: var(--purple);
+				color: #1c1523;
+			}
+
+			.button-primary:hover {
+				color: #1c1523;
+				background: var(--purple-hover);
+				border-color: var(--purple-hover);
+			}
+
+			.button-secondary {
+				color: var(--cream);
+				background: transparent;
+			}
+
+			.button-secondary:hover {
+				border-color: #68606f;
+				background: #1d1b21;
+			}
+
+			.platform-note {
+				margin-top: 22px;
+				color: var(--subtle);
+				font: 0.75rem/1.6 var(--mono);
+				display: flex;
+				flex-wrap: wrap;
+				gap: 12px;
+			}
+
+			.platform-note .separator {
+				color: #58545f;
+			}
+
+			.hero-config {
+				min-width: 0;
+				position: relative;
+			}
+
+			.code-window {
+				border: 1px solid #3a3441;
+				border-top: 2px solid #8f70ae;
+				background: var(--code);
+				border-radius: 2px;
+				box-shadow: 0 15px 48px #00000014;
+			}
+
+			.code-header {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 12px;
+				height: 49px;
+				padding: 0 21px;
+				border-bottom: 1px solid #2b2830;
+				background: #1b191f;
+				font-family: var(--mono);
+				font-size: 0.8rem;
+			}
+
+			.file-label {
+				display: flex;
+				gap: 12px;
+				color: #ccc5d4;
+				align-items: center;
+			}
+
+			.file-mark {
+				color: var(--purple);
+				font-size: 1rem;
+				letter-spacing: -2px;
+				margin-right: 3px;
+			}
+
+			.copy-button {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				gap: 7px;
+				background: transparent;
+				color: var(--muted);
+				border: 0;
+				font: 0.75rem/1.5 var(--mono);
+				padding: 8px 0 8px 8px;
+				min-height: 36px;
+				min-width: 48px;
+			}
+
+			.copy-button:hover {
+				color: var(--cream);
+			}
+
+			.copy-button.copied {
+				color: var(--green);
+			}
+
+			.hero-code {
+				padding: 21px 23px 23px;
+				color: #a9a2b2;
+			}
+
+			.syntax-key {
+				color: #c7a9e6;
+			}
+
+			.syntax-value {
+				color: #e0d9c9;
+			}
+
+			.syntax-string {
+				color: var(--green);
+			}
+
+			.syntax-comment {
+				color: #81808a;
+			}
+
+			.code-footer {
+				border-top: 1px solid #2b2830;
+				padding: 10px 21px;
+				color: var(--subtle);
+				font: 0.75rem/1.6 var(--mono);
+				display: flex;
+				align-items: center;
+				gap: 9px;
+			}
+
+			.code-footer-mark {
+				width: 5px;
+				height: 5px;
+				background: var(--purple);
+			}
+
+			.code-caption {
+				font-size: 0.75rem;
+				margin-top: 13px;
+				color: var(--subtle);
+				line-height: 1.6;
+			}
+
+			.facts-strip {
+				display: grid;
+				grid-template-columns: 1fr 1.2fr 1.2fr 0.7fr;
+				padding: 24px 0;
+				border-top: 1px solid var(--line);
+				border-bottom: 1px solid var(--line);
+				gap: 24px;
+			}
+
+			.facts-strip>div {
+				display: flex;
+				flex-direction: column;
+				gap: 3px;
+			}
+
+			.fact-label {
+				font: 0.75rem/1.6 var(--mono);
+				color: var(--subtle);
+				letter-spacing: 0.1em;
+			}
+
+			.facts-strip>div> :last-child {
+				font-size: 0.9rem;
+				color: #d3ced9;
+			}
+
+			.facts-strip a:hover {
+				text-decoration: underline;
+			}
+
+			.section {
+				padding-top: 97px;
+				padding-bottom: 99px;
+			}
+
+			.section-heading {
+				display: flex;
+				align-items: flex-end;
+				justify-content: space-between;
+				gap: 40px;
+				margin-bottom: 45px;
+			}
+
+			.section-heading h2 {
+				margin-top: 13px;
+			}
+
+			.section-heading>p {
+				color: var(--muted);
+				font-size: 0.9375rem;
+				line-height: 1.7;
+				padding-bottom: 3px;
+			}
+
+			.features-grid {
+				display: grid;
+				grid-template-columns: repeat(3, 1fr);
+				column-gap: 44px;
+			}
+
+			.feature {
+				padding: 26px 0 28px;
+				border-top: 1px solid var(--line);
+			}
+
+			.feature-token {
+				font: 0.75rem/1.6 var(--mono);
+				color: var(--purple);
+			}
+
+			.feature h3 {
+				margin-top: 14px;
+				margin-bottom: 10px;
+			}
+
+			.feature p {
+				color: var(--muted);
+				font-size: 1rem;
+				line-height: 1.7;
+			}
+
+			.configuration-section {
+				border-block: 1px solid var(--line);
+				background: #151417;
+				padding-block: 72px 29px;
+			}
+
+			.configuration-grid {
+				display: grid;
+				grid-template-columns: 0.85fr 1.15fr;
+				gap: 88px;
+				align-items: start;
+			}
+
+			.configuration-copy {
+				padding-top: 5px;
+			}
+
+			.configuration-copy h2 {
+				font-size: 2.5rem;
+				margin-block: 18px 23px;
+				line-height: 1.2;
+			}
+
+			.configuration-copy>p:not(.eyebrow) {
+				color: var(--muted);
+				max-width: 350px;
+				font-size: 1rem;
+				line-height: 1.75;
+			}
+
+			.config-notes {
+				display: grid;
+				gap: 11px;
+				margin-block: 27px 28px;
+			}
+
+			.config-notes p {
+				font-size: 0.875rem;
+				color: #c3bec9;
+			}
+
+			.config-notes span {
+				color: #73667f;
+				font: 0.75rem var(--mono);
+				padding-right: 13px;
+			}
+
+			.text-link {
+				color: var(--purple);
+				font-size: 0.875rem;
+				text-decoration: underline;
+				text-decoration-color: #655272;
+				text-underline-offset: 6px;
+			}
+
+			.text-link:hover {
+				text-decoration-color: var(--purple);
+			}
+
+			.config-explorer {
+				min-width: 0;
+				background: var(--code);
+				border: 1px solid var(--line);
+				border-radius: 2px;
+			}
+
+			.example-tabs {
+				display: flex;
+				border-bottom: 1px solid var(--line);
+				padding-inline: 23px;
+				gap: 28px;
+			}
+
+			.example-tabs button {
+				color: var(--subtle);
+				font-size: 0.875rem;
+				background: none;
+				border: 0;
+				border-bottom: 2px solid transparent;
+				border-radius: 0;
+				padding: 14px 0 12px;
+			}
+
+			.example-tabs button[aria-selected="true"] {
+				color: var(--cream);
+				border-bottom-color: var(--purple);
+			}
+
+			.example-tabs button:hover {
+				color: var(--cream);
+			}
+
+			.example-panel {
+				min-height: 408px;
+			}
+
+			.example-label {
+				padding: 20px 24px 8px;
+				color: var(--subtle);
+				font: 0.75rem/1.6 var(--mono);
+			}
+
+			.example-panel pre {
+				padding: 5px 24px 17px;
+			}
+
+			.example-panel pre code {
+				font-size: 0.875rem;
+				line-height: 1.7;
+			}
+
+			.example-note {
+				margin: 0;
+				border-top: 1px solid var(--line);
+				padding: 15px 24px 18px;
+				color: var(--muted);
+				font-size: 0.8125rem;
+				line-height: 1.65;
+			}
+
+			.behavior-note {
+				display: flex;
+				gap: 12px;
+				border-top: 1px solid #2c2830;
+				padding-top: 22px;
+				margin-top: 34px;
+			}
+
+			.behavior-note>span {
+				color: var(--purple);
+			}
+
+			.behavior-note p {
+				color: var(--subtle);
+				font-size: 0.8125rem;
+				line-height: 1.8;
+			}
+
+			.running-section {
+				padding-bottom: 63px;
+			}
+
+			.running-section .section-heading>a {
+				flex-shrink: 0;
+				margin-bottom: 4px;
+			}
+
+			.steps {
+				list-style: none;
+				display: grid;
+				grid-template-columns: repeat(3, 1fr);
+				gap: 45px;
+				padding: 0;
+				margin: 0;
+			}
+
+			.step-number {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				width: 29px;
+				height: 29px;
+				border: 1px solid #51405e;
+				color: var(--purple);
+				font: 0.8125rem var(--mono);
+				margin-bottom: 19px;
+				border-radius: 2px;
+			}
+
+			.steps h3 {
+				margin-bottom: 11px;
+			}
+
+			.steps p {
+				color: var(--muted);
+				font-size: 1rem;
+			}
+
+			.small-link {
+				color: #cbc3d4;
+				font-size: 0.8125rem;
+				text-decoration: underline;
+				text-decoration-color: #4a414f;
+			}
+
+			.steps .small-link {
+				display: inline-block;
+				margin-top: 19px;
+			}
+
+			.run-command {
+				display: flex;
+				flex-wrap: wrap;
+				align-items: center;
+				gap: 8px 20px;
+				margin-top: 18px;
+			}
+
+			.run-command>code {
+				color: var(--green);
+				font-size: 0.875rem;
+			}
+
+			.run-command>span {
+				color: var(--subtle);
+				font-size: 0.75rem;
+			}
+
+			.service-note {
+				margin-top: 43px;
+				display: grid;
+				grid-template-columns: 1.1fr 1fr;
+				gap: 56px;
+				border: 1px solid var(--line);
+				border-left: 2px solid #718356;
+				padding: 26px 29px;
+				background: #161719;
+				align-items: center;
+			}
+
+			.service-note h3 {
+				font-size: 0.9375rem;
+				margin-bottom: 5px;
+			}
+
+			.service-note p {
+				font-size: 0.875rem;
+				line-height: 1.65;
+				color: var(--muted);
+				margin-bottom: 8px;
+			}
+
+			.command-label {
+				color: var(--subtle);
+				font-size: 0.75rem;
+				display: block;
+				margin-bottom: 8px;
+			}
+
+			.service-command {
+				min-width: 0;
+			}
+
+			.service-command>div {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 10px;
+				padding: 9px 14px;
+				background: #101113;
+				border: 1px solid #303235;
+			}
+
+			.service-command code {
+				font-size: 0.8125rem;
+				color: #d5ddcc;
+				white-space: nowrap;
+			}
+
+			.service-command code span {
+				color: #7b9462;
+			}
+
+			.startup-note {
+				font-size: 0.75rem;
+				color: var(--subtle);
+				margin-top: 16px;
+				max-width: 950px;
+			}
+
+			.example-site {
+				display: grid;
+				grid-template-columns: 0.85fr 1fr;
+				gap: 50px;
+				border-top: 1px solid var(--line);
+				border-bottom: 1px solid var(--line);
+				padding-block: 29px;
+				align-items: center;
+			}
+
+			.example-site-heading {
+				display: flex;
+				flex-direction: column;
+				gap: 7px;
+			}
+
+			.example-site .eyebrow {
+				font-size: 0.75rem;
+				color: var(--green);
+			}
+
+			.example-site-title {
+				font-size: 1.0625rem;
+				color: #dcd6e2;
+				letter-spacing: -0.015em;
+			}
+
+			.onion-link-group {
+				min-width: 0;
+			}
+
+			.onion-address {
+				font: 0.75rem/1.8 var(--mono);
+				color: #ada3b7;
+				overflow-wrap: anywhere;
+			}
+
+			.onion-address:hover {
+				text-decoration: underline;
+			}
+
+			.onion-meta {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 20px;
+				margin-top: 5px;
+				color: var(--subtle);
+				font-size: 0.75rem;
+			}
+
+			.onion-meta .copy-button {
+				padding-block: 2px;
+				min-height: 30px;
+			}
+
+			.site-footer {
+				display: flex;
+				align-items: center;
+				gap: 25px;
+				padding-block: 29px 32px;
+				color: var(--subtle);
+				font-size: 0.75rem;
+			}
+
+			.footer-brand {
+				display: flex;
+				gap: 16px;
+				align-items: center;
+			}
+
+			.footer-brand>a {
+				display: flex;
+			}
+
+			.footer-brand span a {
+				color: #c7becf;
+			}
+
+			.site-footer>p {
+				margin-left: 18px;
+			}
+
+			.site-footer>p span {
+				color: #b0a6bc;
+			}
+
+			.site-footer nav {
+				display: flex;
+				gap: 22px;
+				margin-left: auto;
+			}
+
+			.skip-link {
+				position: fixed;
+				top: 12px;
+				left: 12px;
+				padding: 8px 20px;
+				background: var(--cream);
+				color: var(--background);
+				transform: translateY(-200%);
+				z-index: 10;
+			}
+
+			.skip-link:focus {
+				transform: translateY(0);
+			}
+
+			.sr-only {
+				position: absolute;
+				width: 1px;
+				height: 1px;
+				padding: 0;
+				margin: -1px;
+				overflow: hidden;
+				clip: rect(0, 0, 0, 0);
+				white-space: nowrap;
+				border: 0;
+			}
+
+			@media (min-width: 1500px) {
+				.hero {
+					padding-top: 105px;
+					padding-bottom: 76px;
+				}
+			}
+
+			@media (max-width: 1100px) {
+				.container {
+					width: calc(100% - 64px);
+				}
+
+				.hero {
+					gap: 36px;
+					padding-top: 64px;
+				}
+
+				h1 {
+					font-size: clamp(3.8rem, 7vw, 5rem);
+				}
+
+				.hero-description {
+					font-size: 1rem;
+				}
+
+				.hero-code {
+					padding-inline: 18px;
+				}
+
+				.hero-code code {
+					font-size: 0.875rem;
+				}
+
+				.configuration-grid {
+					gap: 45px;
+				}
+
+				.section-heading>p {
+					font-size: 0.875rem;
+				}
+
+				.features-grid {
+					column-gap: 28px;
+				}
+
+				.service-note {
+					gap: 30px;
+				}
+
+				.site-footer>p {
+					display: none;
+				}
+			}
+
+			@media (max-width: 820px) {
+				.hero {
+					grid-template-columns: 1fr;
+					gap: 36px;
+					padding-top: 52px;
+				}
+
+				.hero-copy {
+					padding-bottom: 0;
+				}
+
+				h1 {
+					font-size: clamp(4.5rem, 11vw, 6rem);
+				}
+
+				.hero-description {
+					max-width: 470px;
+				}
+
+				.hero-config {
+					max-width: 640px;
+					width: 100%;
+				}
+
+				.hero-code code {
+					font-size: 0.875rem;
+				}
+
+				.facts-strip {
+					grid-template-columns: repeat(4, 1fr);
+					gap: 15px;
+				}
+
+				.facts-strip>div> :last-child {
+					font-size: 0.8125rem;
+				}
+
+				.section {
+					padding-block: 68px;
+				}
+
+				.section-heading {
+					align-items: flex-start;
+					flex-direction: column;
+					gap: 18px;
+					margin-bottom: 30px;
+				}
+
+				.section-heading>p br {
+					display: none;
+				}
+
+				.features-grid {
+					grid-template-columns: repeat(2, 1fr);
+					column-gap: 40px;
+				}
+
+				.configuration-grid {
+					grid-template-columns: 1fr;
+					gap: 35px;
+				}
+
+				.configuration-copy>p:not(.eyebrow) {
+					max-width: 510px;
+				}
+
+				.configuration-copy h2 br {
+					display: none;
+				}
+
+				.config-notes {
+					gap: 8px;
+				}
+
+				.configuration-section {
+					padding-top: 57px;
+				}
+
+				.example-panel {
+					min-height: 400px;
+				}
+
+				.steps {
+					gap: 25px;
+				}
+
+				.steps p {
+					font-size: 0.9375rem;
+				}
+
+				.service-note {
+					grid-template-columns: 1fr;
+					gap: 21px;
+				}
+
+				.service-command {
+					max-width: 500px;
+				}
+
+				.example-site {
+					grid-template-columns: 1fr;
+					gap: 17px;
+				}
+
+				.onion-link-group {
+					max-width: 560px;
+				}
+			}
+
+			@media (max-width: 560px) {
+				.container {
+					width: calc(100% - 40px);
+				}
+
+				.header-inner {
+					height: 74px;
+					gap: 16px;
+				}
+
+				.brand svg {
+					width: 78px;
+					height: 33px;
+				}
+
+				.header-inner nav {
+					gap: 18px;
+					font-size: 0.8125rem;
+				}
+
+				.header-inner nav a:first-child,
+				.header-inner nav a:nth-child(2) {
+					display: none;
+				}
+
+				.github-link {
+					border-left: none;
+					padding-left: 0;
+				}
+
+				.github-link span {
+					display: none;
+				}
+
+				.github-link {
+					padding: 10px;
+					margin-right: -10px;
+				}
+
+				.hero {
+					padding-top: 43px;
+					padding-bottom: 37px;
+					gap: 33px;
+				}
+
+				.hero-copy>.eyebrow {
+					font-size: 0.75rem;
+					letter-spacing: 0.065em;
+					gap: 8px;
+				}
+
+				.eyebrow-line {
+					width: 14px;
+				}
+
+				h1 {
+					font-size: clamp(3.75rem, 14vw, 5rem);
+					margin-top: 24px;
+					letter-spacing: -0.055em;
+				}
+
+				.hero-description {
+					margin-top: 22px;
+				}
+
+				.hero-actions {
+					margin-top: 25px;
+					gap: 10px;
+				}
+
+				.button {
+					padding-inline: 20px;
+				}
+
+				.platform-note {
+					font-size: 0.75rem;
+					gap: 9px;
+					margin-top: 19px;
+				}
+
+				.hero-code {
+					padding: 18px 15px;
+				}
+
+				.hero-code code {
+					font-size: 0.875rem;
+				}
+
+				.code-header {
+					padding-inline: 15px;
+				}
+
+				.code-footer {
+					padding-inline: 15px;
+					font-size: 0.75rem;
+				}
+
+				.code-caption {
+					font-size: 0.75rem;
+				}
+
+				.facts-strip {
+					grid-template-columns: 1fr 1fr;
+					row-gap: 20px;
+					padding-block: 21px;
+				}
+
+				.fact-label {
+					font-size: 0.75rem;
+				}
+
+				.facts-strip>div> :last-child {
+					font-size: 0.875rem;
+				}
+
+				.section {
+					padding-block: 55px;
+				}
+
+				h2 {
+					font-size: 1.85rem;
+				}
+
+				.section-heading {
+					margin-bottom: 29px;
+					gap: 15px;
+				}
+
+				.section-heading h2 {
+					margin-top: 14px;
+				}
+
+				.features-grid {
+					grid-template-columns: 1fr;
+				}
+
+				.feature {
+					padding-block: 24px;
+				}
+
+				.feature h3 {
+					margin-top: 10px;
+				}
+
+				.feature p {
+					font-size: 1rem;
+				}
+
+				.configuration-section {
+					padding-block: 45px 24px;
+				}
+
+				.configuration-copy h2 {
+					font-size: 2rem;
+				}
+
+				.configuration-copy h2 br {
+					display: block;
+				}
+
+				.example-tabs {
+					gap: 25px;
+					padding-inline: 18px;
+				}
+
+				.example-label {
+					padding-inline: 18px;
+				}
+
+				.example-panel pre {
+					padding-inline: 18px;
+				}
+
+				.example-panel pre code {
+					font-size: 0.8125rem;
+				}
+
+				.example-panel {
+					min-height: 408px;
+				}
+
+				.example-note {
+					padding-inline: 18px;
+				}
+
+				.behavior-note {
+					margin-top: 24px;
+				}
+
+				.steps {
+					grid-template-columns: 1fr;
+					gap: 32px;
+				}
+
+				.steps>li {
+					position: relative;
+					padding-left: 46px;
+				}
+
+				.step-number {
+					position: absolute;
+					left: 0;
+					top: 0;
+				}
+
+				.steps p {
+					font-size: 1rem;
+				}
+
+				.steps .small-link {
+					margin-top: 10px;
+				}
+
+				.service-note {
+					margin-top: 34px;
+					padding: 22px 18px;
+				}
+
+				.service-command>div {
+					padding: 6px 10px;
+				}
+
+				.service-command code {
+					font-size: 0.75rem;
+				}
+
+				.service-command .copy-button {
+					font-size: 0.75rem;
+					min-width: 33px;
+				}
+
+				.example-site {
+					padding-block: 25px;
+					gap: 13px;
+				}
+
+				.site-footer {
+					flex-wrap: wrap;
+					gap: 18px;
+					padding-block: 25px;
+				}
+
+				.site-footer nav {
+					margin-left: 0;
+					width: 100%;
+					gap: 25px;
+				}
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				html {
+					scroll-behavior: auto;
+				}
+
+				*,
+				*::before,
+				*::after {
+					transition: none !important;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<a class="skip-link" href="#main">Skip to content</a>
+
+		<header class="site-header">
+			<div class="container header-inner">
+				<a class="brand" href="#" aria-label="rotx home">
+					<svg xmlns="http://www.w3.org/2000/svg" width="95" height="40" viewBox="293 24 487 205" fill="none" aria-hidden="true">
+						<defs>
+							<g id="wordmark">
+								<g stroke="#f3f0e8" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M320 122 V210 M320 155 C320 136 343 120 371 122" />
+									<path d="M585 79 V176 Q585 210 615 210 H633 M553 122 H627" />
+									<path d="M678 122 L764 210 M764 122 L678 210" />
+								</g>
+								<g stroke="#bba0dc" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M471 72 C458 62 457 49 461 36 M471 72 C480 57 491 50 493 35" stroke="#a4bd86" stroke-width="6" />
+									<path d="M471 72 C466 107 409 116 409 160 C409 193 434 214 471 214 C508 214 533 193 533 160 C533 116 484 108 471 72 Z" stroke-width="12" />
+									<path d="M471 108 C458 131 430 137 430 163 C430 185 447 199 471 199 C495 199 512 185 512 163 C512 137 484 131 471 108 Z" stroke-width="5" />
+									<path d="M471 139 C462 153 452 157 452 169 C452 181 460 188 471 188 C482 188 490 181 490 169 C490 157 480 153 471 139 Z" stroke-width="4" />
+								</g>
+							</g>
+						</defs>
+						<use href="#wordmark" />
+					</svg>
+				</a>
+
+				<nav aria-label="Main navigation">
+					<a href="#features">Features</a>
+					<a href="#configuration">Configuration</a>
+					<a href="#running">Get started</a>
+				</nav>
+
+				<a class="github-link" href="https://github.com/coalaura/rotx">
+					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="currentColor">
+						<path
+							d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.09c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.03-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1.01 1.72 2.65 1.22 3.3.93.1-.73.4-1.22.72-1.5-2.5-.28-5.13-1.25-5.13-5.57 0-1.23.44-2.24 1.16-3.03-.12-.29-.5-1.43.11-2.99 0 0 .95-.3 3.09 1.16A10.8 10.8 0 0 1 12 6.15c.95 0 1.9.13 2.79.38 2.15-1.46 3.09-1.16 3.09-1.16.62 1.56.23 2.7.11 2.99.72.79 1.16 1.8 1.16 3.03 0 4.33-2.64 5.29-5.15 5.57.4.35.77 1.03.77 2.09v3.08c0 .3.2.65.77.54A11.25 11.25 0 0 0 12 .75Z" />
+					</svg>
+					<span>GitHub</span>
+				</a>
+			</div>
+		</header>
+
+		<main id="main">
+			<section class="hero container" aria-labelledby="hero-title">
+				<div class="hero-copy">
+					<div class="eyebrow">
+						<span class="eyebrow-line"></span>
+						HTTP OVER THE ONION NETWORK
+					</div>
+
+					<h1 id="hero-title">
+						Your server.<br>
+						<span>On Tor.</span>
+					</h1>
+
+					<p class="hero-description">
+						<strong>rotx</strong> serves static files and proxies HTTP services through your .onion addresses. Tor is embedded. Configuration stays in one file.
+					</p>
+
+					<div class="hero-actions">
+						<a class="button button-primary" href="#running">Get started</a>
+						<a class="button button-secondary" href="https://github.com/coalaura/rotx#documentation">Read the docs</a>
+					</div>
+
+					<p class="platform-note">
+						<span>Linux &amp; Windows</span>
+						<span class="separator" aria-hidden="true">/</span>
+						<span>amd64 &amp; arm64</span>
+					</p>
+				</div>
+
+				<div class="hero-config">
+					<div class="code-window">
+						<div class="code-header">
+							<span class="file-label">
+								<span class="file-mark" aria-hidden="true">{ }</span>
+								rotx.conf
+							</span>
+
+							<button class="copy-button" type="button" data-copy="hero-code" aria-label="Copy example rotx configuration" hidden>
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+									<path d="M8 8h12v13H8zM16 8V3H3v13h5" />
+								</svg>
+
+								<span>Copy</span>
+							</button>
+						</div>
+
+						<pre class="hero-code" tabindex="0" aria-label="Example rotx configuration"><code id="hero-code"><span class="syntax-key">http</span> {
+    <span class="syntax-key">compress</span> <span class="syntax-value">zstd gzip brotli</span>;
+
+    <span class="syntax-key">server</span> {
+        <span class="syntax-key">name</span> <span class="syntax-string">"&lt;your-56-character-onion-name&gt;"</span>;
+        <span class="syntax-key">key_private</span> <span class="syntax-value">keys/site.key</span>;
+        <span class="syntax-key">key_public</span>  <span class="syntax-value">keys/site.pub</span>;
+
+        <span class="syntax-comment"># Serve files from ./public</span>
+        <span class="syntax-key">root</span> <span class="syntax-value">public</span>;
+        <span class="syntax-key">index</span> <span class="syntax-value">index.html</span>;
+
+        <span class="syntax-comment"># Forward requests to your application</span>
+        <span class="syntax-key">location</span> <span class="syntax-value">/api/</span> {
+            <span class="syntax-key">proxy_pass</span> <span class="syntax-value">http://127.0.0.1:8080</span>;
+        }
+
+        <span class="syntax-key">location</span> <span class="syntax-value">^~ /assets/</span> {
+            <span class="syntax-key">cache</span> <span class="syntax-string">30d</span>;
+        }
+    }
+}</code></pre>
+
+						<div class="code-footer">
+							<span class="code-footer-mark" aria-hidden="true"></span>
+							One server block per onion address.
+						</div>
+					</div>
+
+					<p class="code-caption">
+						Use your onion name and matching key files. Create <code>public/</code> before starting.
+					</p>
+				</div>
+			</section>
+
+			<div class="container facts-strip" aria-label="Project details">
+				<div>
+					<span class="fact-label">RUNTIME</span>
+					<span>Tor, built in</span>
+				</div>
+				<div>
+					<span class="fact-label">CONFIGURATION</span>
+					<span>nginx-style syntax</span>
+				</div>
+				<div>
+					<span class="fact-label">IMPLEMENTATION</span>
+					<span>Go + native Tor</span>
+				</div>
+				<div>
+					<span class="fact-label">SOURCE</span>
+					<a href="https://github.com/coalaura/rotx/blob/master/LICENSE">GPL-3.0</a>
+				</div>
+			</div>
+
+			<section class="section container" id="features" aria-labelledby="features-title">
+				<div class="section-heading">
+					<div>
+						<p class="eyebrow">01 / WHAT IT DOES</p>
+						<h2 id="features-title">Files, services, onion addresses.</h2>
+					</div>
+
+					<p>Run several onion services in one process.<br>Give each its own keys, routes and settings.</p>
+				</div>
+
+				<div class="features-grid">
+					<article class="feature">
+						<span class="feature-token" aria-hidden="true">root / alias</span>
+
+						<h3>Serve your files</h3>
+
+						<p>Static content with index files, MIME detection, byte ranges and conditional requests. File access stays within your configured root or alias.</p>
+					</article>
+
+					<article class="feature">
+						<span class="feature-token" aria-hidden="true">proxy_pass</span>
+
+						<h3>Keep your application</h3>
+
+						<p>Forward requests to an HTTP or HTTPS upstream. Connections are reused, responses stream by default and buffering is opt-in.</p>
+					</article>
+
+					<article class="feature">
+						<span class="feature-token" aria-hidden="true">server { }</span>
+
+						<h3>Use multiple identities</h3>
+
+						<p>Each onion address gets a server block. rotx validates the address and matching keys, then routes requests by their onion host.</p>
+					</article>
+
+					<article class="feature">
+						<span class="feature-token" aria-hidden="true">zstd / gzip / brotli</span>
+
+						<h3>Send fewer bytes</h3>
+
+						<p>Negotiate compression, use precompressed files or cache generated static variants in memory or on disk. Enable proxy compression per route.</p>
+					</article>
+
+					<article class="feature">
+						<span class="feature-token" aria-hidden="true">cache / header_set</span>
+
+						<h3>Control the response</h3>
+
+						<p>Set cache lifetimes and add, replace or remove headers. Policies inherit from HTTP to server to location, with explicit overrides.</p>
+					</article>
+
+					<article class="feature">
+						<span class="feature-token" aria-hidden="true">pow / client_keys</span>
+
+						<h3>Choose who can connect</h3>
+
+						<p>Keep a service public or require Tor client authorization. Enable Tor's proof-of-work defenses for your onion services when needed.</p>
+					</article>
+
+				</div>
+			</section>
+
+			<section class="configuration-section" id="configuration" aria-labelledby="configuration-title">
+				<div class="container configuration-grid">
+					<div class="configuration-copy">
+						<p class="eyebrow">02 / CONFIGURATION</p>
+
+						<h2 id="configuration-title">
+							Familiar syntax.<br>
+							Explicit behavior.
+						</h2>
+
+						<p>
+							Semicolons, server blocks and locations. A small set of directives, with validation before Tor starts.
+						</p>
+
+						<div class="config-notes">
+							<p>
+								<span>01</span> Exact, prefix and regex routing.
+							</p>
+							<p>
+								<span>02</span> Includes resolve relative to their file.
+							</p>
+							<p>
+								<span>03</span> Errors include file, line and column.
+							</p>
+						</div>
+
+						<a class="text-link" href="https://github.com/coalaura/rotx#config-syntax">Full configuration reference</a>
+					</div>
+
+					<div class="config-explorer">
+						<div class="example-tabs" role="tablist" aria-label="Configuration examples" hidden>
+							<button type="button" id="tab-routing" role="tab" aria-selected="true" aria-controls="panel-routing" tabindex="0" data-tab="routing">Routing</button>
+							<button type="button" id="tab-responses" role="tab" aria-selected="false" aria-controls="panel-responses" tabindex="-1" data-tab="responses">Responses</button>
+							<button type="button" id="tab-access" role="tab" aria-selected="false" aria-controls="panel-access" tabindex="-1" data-tab="access">Access</button>
+						</div>
+
+						<div class="example-panel" id="panel-routing" role="tabpanel" aria-labelledby="tab-routing" tabindex="0">
+							<div class="example-label">Inside a server block</div>
+
+							<pre><code><span class="syntax-key">location</span> <span class="syntax-value">= /health</span> {
+    <span class="syntax-key">return</span> <span class="syntax-string">200 "ok\n"</span>;
+}
+
+<span class="syntax-key">location</span> <span class="syntax-value">^~ /assets/</span> {
+    <span class="syntax-key">alias</span> <span class="syntax-value">assets</span>;
+    <span class="syntax-key">cache</span> <span class="syntax-string">30d</span>;
+}
+
+<span class="syntax-key">location</span> <span class="syntax-value">/api/</span> {
+    <span class="syntax-key">proxy_pass</span> <span class="syntax-value">http://127.0.0.1:8080</span>;
+}</code></pre>
+
+							<p class="example-note">
+								Exact matches win. Otherwise, the longest prefix applies unless a regex matches. <code>^~</code> skips regex matching.
+							</p>
+						</div>
+
+						<div class="example-panel" id="panel-responses" role="tabpanel" aria-labelledby="tab-responses" tabindex="0" hidden>
+							<div class="example-label">Inside a server block</div>
+
+							<pre><code><span class="syntax-key">server_tokens</span> <span class="syntax-value">off</span>;
+<span class="syntax-key">header_set</span> <span class="syntax-value">X-Content-Type-Options nosniff</span>;
+
+<span class="syntax-key">compress</span> <span class="syntax-value">zstd gzip brotli</span>;
+<span class="syntax-key">compress_cache</span> <span class="syntax-value">memory</span>;
+
+<span class="syntax-key">location</span> <span class="syntax-value">/api/</span> {
+    <span class="syntax-key">proxy_pass</span> <span class="syntax-value">http://127.0.0.1:8080</span>;
+    <span class="syntax-key">proxy_compress</span> <span class="syntax-value">on</span>;
+    <span class="syntax-key">cache</span> <span class="syntax-value">off</span>;
+}</code></pre>
+
+							<p class="example-note">
+								<code>cache</code> controls HTTP cache headers. <code>compress_cache</code> stores compressed static files. Upstream responses are not cached.
+							</p>
+						</div>
+
+						<div class="example-panel" id="panel-access" role="tabpanel" aria-labelledby="tab-access" tabindex="0" hidden>
+							<div class="example-label">Excerpt from an http block</div>
+
+							<pre><code><span class="syntax-key">pow</span> <span class="syntax-value">on</span>;
+
+<span class="syntax-key">server</span> {
+    <span class="syntax-comment"># Add name, key_private and key_public</span>
+    <span class="syntax-key">client_keys</span> <span class="syntax-value">keys/clients</span>;
+    <span class="syntax-key">server_tokens</span> <span class="syntax-value">off</span>;
+
+    <span class="syntax-key">location</span> <span class="syntax-value">/</span> {
+        <span class="syntax-key">proxy_pass</span> <span class="syntax-value">http://127.0.0.1:9090</span>;
+    }
+}</code></pre>
+
+							<p class="example-note">
+								The directory must contain client <code>.auth</code> public keys. Clients keep their private keys. Authorization changes require a restart.
+							</p>
+						</div>
+
+						<noscript>
+							<p class="example-note">
+								More examples are available in the <a href="https://github.com/coalaura/rotx#configuration">configuration reference</a>.
+							</p>
+						</noscript>
+					</div>
+				</div>
+
+				<div class="container behavior-note">
+					<span aria-hidden="true">↳</span>
+
+					<p>
+						A difference from nginx: <code>proxy_pass</code> keeps the entire request path. A base path is prepended; <code>proxy_path</code> replaces it.
+					</p>
+				</div>
+			</section>
+
+			<section class="section container running-section" id="running" aria-labelledby="running-title">
+				<div class="section-heading">
+					<div>
+						<p class="eyebrow">03 / RUNNING ROTX</p>
+
+						<h2 id="running-title">From config to onion service.</h2>
+					</div>
+
+					<a class="text-link" href="https://github.com/coalaura/rotx/releases">Download a release</a>
+				</div>
+
+				<ol class="steps">
+					<li>
+						<span class="step-number">1</span>
+
+						<h3>Get the binary</h3>
+
+						<p>Choose Linux or Windows, on amd64 or arm64. Tor and its native libraries are bundled.</p><a href="https://github.com/coalaura/rotx/releases" class="small-link">Binaries &amp; checksums</a>
+					</li>
+
+					<li>
+						<span class="step-number">2</span>
+
+						<h3>Add your configuration</h3>
+
+						<p>
+							Put <code>rotx.conf</code> beside your binary. Supply your onion identity and keys, then set your files and upstreams.
+						</p>
+
+						<a href="https://github.com/coalaura/rotx/blob/master/examples/production/rotx.conf" class="small-link">Complete example</a>
+					</li>
+
+					<li>
+						<span class="step-number">3</span>
+
+						<h3>Start rotx</h3>
+
+						<p>
+							Run from that directory. rotx validates the configuration, bootstraps Tor and registers your onion services.
+						</p>
+
+						<div class="run-command">
+							<code>./rotx</code>
+							<span>
+								Windows: <code>.\rotx.exe</code>
+							</span>
+						</div>
+					</li>
+				</ol>
+				<div class="service-note">
+					<div>
+						<h3>Running on Linux?</h3>
+
+						<p>
+							The supplied systemd setup runs rotx as an unprivileged user, with writes restricted to its <code>data/</code> directory.
+						</p>
+
+						<a class="small-link" href="https://github.com/coalaura/rotx/tree/master/conf#linux-system-service">Service setup &amp; permissions</a>
+					</div>
+
+					<div class="service-command">
+						<span class="command-label">With your binary, config and conf/ folder in place</span>
+
+						<div>
+							<code><span aria-hidden="true">$ </span>bash conf/setup.sh</code>
+
+							<button class="copy-button" type="button" data-copy-text="bash conf/setup.sh" aria-label="Copy Linux service setup command" hidden>Copy</button>
+						</div>
+					</div>
+				</div>
+
+				<p class="startup-note">
+					Registration is the first step. Descriptor publication and client reachability take additional time. Configuration changes require a restart.
+				</p>
+			</section>
+
+			<aside class="example-site container" aria-label="A site running on rotx">
+				<div class="example-site-heading">
+					<span class="eyebrow">OUT IN THE ONION NETWORK</span>
+					<a href="http://garfieldnlig2wkcz6mwcshwlgf5mwrksvdyu34h4xn6stedf3nbesyd.onion/" class="example-site-title">Garfield, served through rotx.</a>
+				</div>
+
+				<div class="onion-link-group">
+					<a class="onion-address" href="http://garfieldnlig2wkcz6mwcshwlgf5mwrksvdyu34h4xn6stedf3nbesyd.onion/">garfieldnlig2wkcz6mwcshwlgf5mwrksvdyu34h4xn6stedf3nbesyd.onion</a>
+
+					<div class="onion-meta">
+						<span>Open with Tor Browser</span>
+
+						<button class="copy-button" type="button" data-copy-text="http://garfieldnlig2wkcz6mwcshwlgf5mwrksvdyu34h4xn6stedf3nbesyd.onion/" aria-label="Copy Garfield onion address" hidden>Copy address</button>
+					</div>
+				</div>
+			</aside>
+		</main>
+
+		<footer class="container site-footer">
+			<div class="footer-brand">
+				<a href="#" aria-label="rotx home">
+					<svg xmlns="http://www.w3.org/2000/svg" width="64" height="27" viewBox="293 24 487 205" fill="none" aria-hidden="true">
+						<use href="#wordmark" />
+					</svg>
+				</a>
+
+				<span>by <a href="https://github.com/coalaura">coalaura</a></span>
+			</div>
+
+			<p>
+				<span>tor, backwards.</span> A little nginx at the end.
+			</p>
+
+			<nav aria-label="Footer navigation">
+				<a href="https://github.com/coalaura/rotx#documentation">Documentation</a>
+				<a href="https://github.com/coalaura/rotx">Source</a>
+				<a href="https://github.com/coalaura/rotx/blob/master/LICENSE">License</a>
+			</nav>
+		</footer>
+
+		<div class="sr-only" id="copy-status" role="status" aria-live="polite"></div>
+
+		<script>
+			const copyStatus = document.querySelector("#copy-status"),
+				copyTimers = new WeakMap();
+
+			async function copyText(text) {
+				if (navigator.clipboard && window.isSecureContext) {
+					try {
+						await navigator.clipboard.writeText(text);
+
+						return true;
+					} catch { }
+				}
+
+				const activeElement = document.activeElement,
+					textarea = document.createElement("textarea");
+
+				textarea.value = text;
+				textarea.setAttribute("readonly", "");
+				textarea.className = "sr-only";
+
+				document.body.append(textarea);
+
+				textarea.select();
+
+				let copied = false;
+
+				try {
+					copied = document.execCommand("copy");
+				} finally {
+					textarea.remove();
+
+					activeElement?.focus({ preventScroll: true });
+				}
+
+				return copied;
+			}
+
+			document.querySelectorAll("[data-copy], [data-copy-text]").forEach((button) => {
+				button.hidden = false;
+
+				const originalContent = [...button.childNodes];
+
+				button.addEventListener("click", async () => {
+					const text = button.dataset.copyText ?? document.getElementById(button.dataset.copy)?.textContent;
+
+					if (!text) {
+						return;
+					}
+
+					let copied = false;
+
+					try {
+						copied = await copyText(text);
+					} catch {
+						copied = false;
+					}
+
+					clearTimeout(copyTimers.get(button));
+
+					button.textContent = copied ? "Copied" : "Copy failed";
+					button.classList.toggle("copied", copied);
+
+					copyStatus.textContent = copied ? "Copied to clipboard." : "Clipboard access is unavailable. Select and copy the text manually.";
+
+					copyTimers.set(button, setTimeout(() => {
+						button.replaceChildren(...originalContent);
+
+						button.classList.remove("copied");
+					}, 2200));
+				});
+			});
+
+			const tabList = document.querySelector(".example-tabs"),
+				tabs = [...tabList.querySelectorAll(`[role="tab"]`)];
+
+			function selectTab(selectedTab, moveFocus = false) {
+				tabs.forEach((tab) => {
+					const selected = tab === selectedTab;
+
+					tab.setAttribute("aria-selected", String(selected));
+					tab.tabIndex = selected ? 0 : -1;
+
+					document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+				});
+
+				if (moveFocus) {
+					selectedTab.focus();
+				}
+			}
+
+			tabList.hidden = false;
+
+			tabs.forEach((tab, index) => {
+				tab.addEventListener("click", () => selectTab(tab));
+
+				tab.addEventListener("keydown", (event) => {
+					let target;
+
+					switch (event.key) {
+						case "ArrowRight":
+							target = tabs[(index + 1) % tabs.length];
+
+							break;
+						case "ArrowLeft":
+							target = tabs[(index - 1 + tabs.length) % tabs.length];
+
+							break;
+						case "Home":
+							target = tabs[0];
+
+							break;
+						case "End":
+							target = tabs[tabs.length - 1];
+
+							break;
+						default:
+							return;
+					}
+
+					event.preventDefault();
+
+					selectTab(target, true);
+				});
+			});
+		</script>
+	</body>
+</html>
