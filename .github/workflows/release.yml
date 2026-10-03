@@ -1,0 +1,119 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os }}/${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, windows]
+        arch: [amd64, arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pinned Zig for native library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source tools/tor/versions.sh
+
+          index="$(curl --fail --location --retry 5 --retry-all-errors https://ziglang.org/download/index.json)"
+          url="$(jq -er --arg version "$ZIG_VERSION" '.[$version]["x86_64-linux"].tarball' <<< "$index")"
+          sha256="$(jq -er --arg version "$ZIG_VERSION" '.[$version]["x86_64-linux"].shasum' <<< "$index")"
+          archive="$RUNNER_TEMP/zig.tar.xz"
+          directory="$RUNNER_TEMP/zig"
+
+          curl --fail --location --retry 5 --retry-all-errors --output "$archive" "$url"
+          printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check --status
+
+          mkdir -p "$directory"
+          tar -xf "$archive" --strip-components=1 -C "$directory"
+
+          echo "$directory" >> "$GITHUB_PATH"
+
+      - name: Cache native source tarballs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rotx-tor
+          key: rotx-tor-sources-${{ hashFiles('tools/tor/versions.sh') }}
+          restore-keys: rotx-tor-sources-
+
+      - name: Build native Tor library
+        shell: bash
+        run: ./tools/tor/build.sh "${{ matrix.os }}/${{ matrix.arch }}"
+
+      - name: Build rotx
+        id: build
+        uses: coalaura/build@v1
+        with:
+          os: ${{ matrix.os }}
+          arch: ${{ matrix.arch }}
+          cgo: true
+          generate: false
+          optimization: compatible
+          output: dist/rotx-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+
+      - name: Sign rotx
+        id: sign
+        uses: coalaura/sign@v1
+        with:
+          path: ${{ steps.build.outputs.path }}
+          key: ${{ secrets.COALAURA_PFX }}
+          passphrase: ${{ secrets.COALAURA_PFX_PASSWORD }}
+          chain: |
+            https://wiese2.org/pki/issuing.pem
+            https://wiese2.org/pki/root.pem
+
+      - name: Hash release binary
+        shell: bash
+        working-directory: dist
+        env:
+          BINARY_PATH: ${{ steps.sign.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          binary="${BINARY_PATH##*/}"
+          sha256sum "$binary" > "$binary.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}_${{ matrix.arch }}
+          path: |
+            ${{ steps.sign.outputs.path }}
+            ${{ steps.sign.outputs.path }}.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/*
+          fail_on_unmatched_files: true
