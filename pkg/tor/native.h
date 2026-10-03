@@ -12,6 +12,9 @@ void rotx_tor_capture_logs(int enabled);
 void rotx_tor_free(rotx_tor *instance);
 
 const char *rotx_tor_version(void);
+const char *rotx_openssl_version(void);
+const char *rotx_libevent_version(void);
+const char *rotx_zlib_version(void);
 
 int rotx_tor_control_wait(rotx_tor *instance, int write_ready, int timeout_ms);
 int64_t rotx_tor_control_read(rotx_tor *instance, void *buffer, size_t size);

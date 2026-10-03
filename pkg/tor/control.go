@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 const (
@@ -27,15 +27,19 @@ type ControlError struct {
 type control struct {
 	instance *nativeInstance
 	buffer   []byte
-	mutex    sync.Mutex
+	gate     chan struct{}
+	lifetime context.Context
+	cancel   context.CancelFunc
+	closed   bool
 }
 
 func (r Reply) Value(name string) (string, bool) {
 	prefix := name + "="
 
 	for _, line := range r.Lines {
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimPrefix(line, prefix), true
+		value, found := strings.CutPrefix(line, prefix)
+		if found {
+			return value, true
 		}
 	}
 
@@ -51,9 +55,25 @@ func (err *ControlError) Error() string {
 }
 
 func (c *control) close() {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	// Cancel active I/O before waiting for exclusive access to the native socket.
+	c.cancel()
 
+	c.gate <- struct{}{}
+
+	defer func() {
+		<-c.gate
+	}()
+
+	c.closeLocked()
+}
+
+func (c *control) closeLocked() {
+	if c.closed {
+		return
+	}
+
+	c.closed = true
+	c.cancel()
 	c.instance.closeControl()
 }
 
@@ -62,12 +82,36 @@ func (c *control) command(ctx context.Context, command string) (Reply, error) {
 }
 
 func (c *control) commandBytes(ctx context.Context, command []byte) (Reply, error) {
-	if bytes.IndexAny(command, "\r\n") >= 0 {
-		return Reply{}, fmt.Errorf("Tor control command contains a line break")
+	if bytes.ContainsAny(command, "\r\n") {
+		return Reply{}, fmt.Errorf("tor control command contains a line break")
 	}
 
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	select {
+	case <-ctx.Done():
+		return Reply{}, ctx.Err()
+	case <-c.lifetime.Done():
+		return Reply{}, net.ErrClosed
+	case c.gate <- struct{}{}:
+	}
+
+	defer func() {
+		<-c.gate
+	}()
+
+	if c.lifetime.Err() != nil {
+		return Reply{}, net.ErrClosed
+	}
+
+	err := ctx.Err()
+	if err != nil {
+		return Reply{}, err
+	}
+
+	commandContext, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(c.lifetime, cancel)
+
+	defer stop()
+	defer cancel()
 
 	wire := make([]byte, 0, len(command)+2)
 
@@ -76,14 +120,19 @@ func (c *control) commandBytes(ctx context.Context, command []byte) (Reply, erro
 
 	defer clear(wire)
 
-	err := c.instance.write(ctx, wire)
+	err = c.instance.write(commandContext, wire)
 	if err != nil {
+		c.closeLocked()
+
 		return Reply{}, err
 	}
 
 	for {
-		reply, err := c.readReply(ctx)
+		reply, err := c.readReply(commandContext)
 		if err != nil {
+			// A partial or cancelled exchange cannot safely be reused for another command.
+			c.closeLocked()
+
 			return Reply{}, err
 		}
 
@@ -95,6 +144,7 @@ func (c *control) commandBytes(ctx context.Context, command []byte) (Reply, erro
 
 		if reply.Code >= 400 {
 			message := ""
+
 			if len(reply.Lines) != 0 {
 				message = reply.Lines[len(reply.Lines)-1]
 			}
@@ -123,7 +173,7 @@ func (c *control) readReply(ctx context.Context) (Reply, error) {
 		if reply.Code == 0 {
 			reply.Code = code
 		} else if reply.Code != code {
-			return Reply{}, fmt.Errorf("Tor control reply changed status from %d to %d", reply.Code, code)
+			return Reply{}, fmt.Errorf("tor control reply changed status from %d to %d", reply.Code, code)
 		}
 
 		reply.Lines = append(reply.Lines, text)
@@ -168,7 +218,7 @@ func (c *control) readLine(ctx context.Context) (string, error) {
 		}
 
 		if len(c.buffer) >= controlMaxLine {
-			return "", fmt.Errorf("Tor control line exceeds %d bytes", controlMaxLine)
+			return "", fmt.Errorf("tor control line exceeds %d bytes", controlMaxLine)
 		}
 
 		var incoming [controlReadSize]byte
@@ -179,6 +229,17 @@ func (c *control) readLine(ctx context.Context) (string, error) {
 		}
 
 		c.buffer = append(c.buffer, incoming[:count]...)
+	}
+}
+
+func newControl(instance *nativeInstance) *control {
+	lifetime, cancel := context.WithCancel(context.Background())
+
+	return &control{
+		instance: instance,
+		gate:     make(chan struct{}, 1),
+		lifetime: lifetime,
+		cancel:   cancel,
 	}
 }
 

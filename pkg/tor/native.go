@@ -82,7 +82,7 @@ func (i *nativeInstance) read(ctx context.Context, buffer []byte) (int, error) {
 		case result > 0:
 			return int(result), nil
 		case result == 0:
-			return 0, fmt.Errorf("Tor control socket closed")
+			return 0, fmt.Errorf("tor control socket closed")
 		case result == -2:
 			continue
 		default:
@@ -131,7 +131,8 @@ func (i *nativeInstance) wait(ctx context.Context, writeReady bool) error {
 		if hasDeadline {
 			remaining := time.Until(deadline)
 			if remaining <= 0 {
-				return ctx.Err()
+				// The context timer may not have fired yet, so Err can still be nil.
+				return context.DeadlineExceeded
 			}
 
 			if remaining < timeout {
@@ -139,10 +140,7 @@ func (i *nativeInstance) wait(ctx context.Context, writeReady bool) error {
 			}
 		}
 
-		timeoutMilliseconds := int(timeout / time.Millisecond)
-		if timeoutMilliseconds < 1 {
-			timeoutMilliseconds = 1
-		}
+		timeoutMilliseconds := max(int(timeout/time.Millisecond), 1)
 
 		writeFlag := C.int(0)
 		if writeReady {
@@ -168,7 +166,7 @@ func (i *nativeInstance) wait(ctx context.Context, writeReady bool) error {
 
 func newNativeInstance(arguments []string) (*nativeInstance, error) {
 	if len(arguments) == 0 {
-		return nil, fmt.Errorf("Tor requires at least one argument")
+		return nil, fmt.Errorf("tor requires at least one argument")
 	}
 
 	pointerSize := C.size_t(unsafe.Sizeof(uintptr(0)))
@@ -216,8 +214,17 @@ func nativeVersion() string {
 	return C.GoString(version)
 }
 
+func nativeVersions() LibraryVersions {
+	return LibraryVersions{
+		Tor:      nativeVersion(),
+		OpenSSL:  C.GoString(C.rotx_openssl_version()),
+		Libevent: C.GoString(C.rotx_libevent_version()),
+		Zlib:     C.GoString(C.rotx_zlib_version()),
+	}
+}
+
 func nativeSocketError(operation string) error {
 	code := int(C.rotx_tor_control_error())
 
-	return fmt.Errorf("Tor control socket %s failed with OS error %d", operation, code)
+	return fmt.Errorf("tor control socket %s failed with OS error %d", operation, code)
 }

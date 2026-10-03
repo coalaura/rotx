@@ -62,11 +62,11 @@ func (instance *Instance) AddOnion(ctx context.Context, service Service) (*Onion
 
 	serviceID, ok := reply.Value("ServiceID")
 	if !ok {
-		return nil, fmt.Errorf("Tor ADD_ONION reply did not contain ServiceID")
+		return nil, fmt.Errorf("tor ADD_ONION reply did not contain ServiceID")
 	}
 
 	if serviceID != service.ID {
-		return nil, fmt.Errorf("Tor registered onion %q, expected %q", serviceID, service.ID)
+		return nil, fmt.Errorf("tor registered onion %q, expected %q", serviceID, service.ID)
 	}
 
 	return &Onion{instance: instance, ID: serviceID}, nil

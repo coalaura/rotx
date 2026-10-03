@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,12 +30,12 @@ type Options struct {
 }
 
 type Instance struct {
-	native  *nativeInstance
-	control *control
-	runDone chan struct{}
+	native    *nativeInstance
+	control   *control
+	runDone   chan struct{}
+	closeDone chan struct{}
 
 	closeOnce sync.Once
-	freeOnce  sync.Once
 	errMutex  sync.Mutex
 	closeErr  error
 	runErr    error
@@ -82,31 +83,19 @@ func (instance *Instance) Close() error {
 	return instance.CloseContext(ctx)
 }
 
+// CloseContext starts shutdown once and waits up to the caller's deadline.
+// Native cleanup continues in the background if the caller stops waiting.
 func (instance *Instance) CloseContext(ctx context.Context) error {
 	instance.closeOnce.Do(func() {
-		shutdownContext, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-
-		_, signalErr := instance.control.command(shutdownContext, "SIGNAL SHUTDOWN")
-		if signalErr != nil {
-			instance.errMutex.Lock()
-			instance.closeErr = signalErr
-			instance.errMutex.Unlock()
-		}
-
-		// The control connection was created as Tor's owning controller. Closing
-		// it is both a fallback shutdown trigger and the lifetime boundary for
-		// every ADD_ONION service created through it.
-		instance.control.close()
+		// Cleanup outlives a caller's deadline, including freeing the native instance.
+		go instance.shutdown(ctx)
 	})
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-instance.runDone:
+	case <-instance.closeDone:
 	}
-
-	instance.freeOnce.Do(instance.native.free)
 
 	instance.errMutex.Lock()
 	closeError := instance.closeErr
@@ -114,6 +103,27 @@ func (instance *Instance) CloseContext(ctx context.Context) error {
 	instance.errMutex.Unlock()
 
 	return errors.Join(closeError, runError)
+}
+
+func (instance *Instance) shutdown(ctx context.Context) {
+	shutdownContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	_, signalErr := instance.control.command(shutdownContext, "SIGNAL SHUTDOWN")
+	if errors.Is(signalErr, net.ErrClosed) {
+		// A cancelled exchange may already have closed the owning controller.
+		signalErr = nil
+	}
+
+	instance.errMutex.Lock()
+	instance.closeErr = signalErr
+	instance.errMutex.Unlock()
+
+	// Closing the owning controller interrupts commands and removes its onion services.
+	instance.control.close()
+	<-instance.runDone
+	instance.native.free()
+	close(instance.closeDone)
 }
 
 func (instance *Instance) bootstrapProgress(ctx context.Context) (int, error) {
@@ -124,10 +134,10 @@ func (instance *Instance) bootstrapProgress(ctx context.Context) (int, error) {
 
 	status, ok := reply.Value("status/bootstrap-phase")
 	if !ok {
-		return 0, fmt.Errorf("Tor bootstrap reply did not contain status/bootstrap-phase")
+		return 0, fmt.Errorf("tor bootstrap reply did not contain status/bootstrap-phase")
 	}
 
-	for _, field := range strings.Fields(status) {
+	for field := range strings.FieldsSeq(status) {
 		value, found := strings.CutPrefix(field, "PROGRESS=")
 		if !found {
 			continue
@@ -141,7 +151,7 @@ func (instance *Instance) bootstrapProgress(ctx context.Context) (int, error) {
 		return progress, nil
 	}
 
-	return 0, fmt.Errorf("Tor bootstrap reply did not contain PROGRESS")
+	return 0, fmt.Errorf("tor bootstrap reply did not contain PROGRESS")
 }
 
 func (instance *Instance) exitError(fallback string) error {
@@ -166,7 +176,7 @@ func Version() string {
 
 func Start(options Options) (*Instance, error) {
 	if options.DataDirectory == "" {
-		return nil, fmt.Errorf("Tor data directory is required")
+		return nil, fmt.Errorf("tor data directory is required")
 	}
 
 	if !torStarted.CompareAndSwap(false, true) {
@@ -211,9 +221,10 @@ func Start(options Options) (*Instance, error) {
 	}
 
 	instance := &Instance{
-		native:  native,
-		control: &control{instance: native},
-		runDone: make(chan struct{}),
+		native:    native,
+		control:   newControl(native),
+		runDone:   make(chan struct{}),
+		closeDone: make(chan struct{}),
 	}
 
 	started = true

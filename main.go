@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,7 +26,7 @@ var Version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "version") {
-		fmt.Printf("rotx version %s\n", Version)
+		printVersion(os.Stdout)
 
 		return
 	}

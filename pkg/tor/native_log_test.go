@@ -3,10 +3,12 @@
 package tor
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,8 @@ type nativeLogEntry struct {
 	level   string
 	message string
 }
+
+var coverageSummary = regexp.MustCompile(`\APASS\ncoverage: (?:(?:100\.0|[0-9]{1,2}\.[0-9])% of statements|\[no statements\])\n\z`)
 
 func TestNativeLogCallback(t *testing.T) {
 	// Tor is process-global and cannot be restarted after cleanup.
@@ -37,12 +41,27 @@ func TestNativeLogCallback(t *testing.T) {
 	command := exec.CommandContext(ctx, executable, "-test.run=^TestNativeLogCallback$")
 	command.Env = append(os.Environ(), "ROTX_TEST_NATIVE_LOGS=1")
 
-	output, err := command.CombinedOutput()
+	var standardError bytes.Buffer
+
+	command.Stderr = &standardError
+
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("native logging subprocess: %v\n%s", err, output)
+		t.Fatalf("native logging subprocess: %v\n%s%s", err, output, standardError.Bytes())
 	}
 
-	if string(output) != "PASS\n" {
+	if standardError.Len() != 0 {
+		t.Fatalf("native console output outside the callback: %q", standardError.String())
+	}
+
+	// Only the test runner's exact success output is allowed, including its coverage summary.
+	validOutput := string(output) == "PASS\n"
+
+	if testing.CoverMode() != "" {
+		validOutput = coverageSummary.Match(output)
+	}
+
+	if !validOutput {
 		t.Fatalf("unexpected console output outside the callback: %q", output)
 	}
 }
@@ -89,7 +108,7 @@ func testNativeLogCallback(t *testing.T) {
 		close(finished)
 	}()
 
-	controller := &control{instance: native}
+	controller := newControl(native)
 
 	t.Cleanup(func() {
 		controller.close()

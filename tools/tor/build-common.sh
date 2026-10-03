@@ -476,8 +476,13 @@ link_probe() {
 #include <winsock2.h>
 #endif
 #include <feature/api/tor_api.h>
+#include "native.h"
 
 int main(int argc, char **argv) {
+    if (rotx_openssl_version() == NULL || rotx_libevent_version() == NULL || rotx_zlib_version() == NULL) {
+        return 1;
+    }
+
     tor_main_configuration_t *configuration = tor_main_configuration_new();
     if (configuration == 0) {
         return 1;
@@ -495,7 +500,7 @@ int main(int argc, char **argv) {
 }
 C
 
-    local compile_flags=(-O2 -I"$NATIVE_DIR/include")
+    local compile_flags=(-O2 -I"$NATIVE_DIR/include" -I"$ROOT_DIR/pkg/tor")
     local split_cflags=()
     read -r -a split_cflags <<< "$cflags"
     compile_flags+=("${split_cflags[@]}")
@@ -737,6 +742,17 @@ build_target() {
 
     local output_dir="$NATIVE_DIR/lib/$output_name"
     local bundle="$output_dir/librotx_tor.a"
+
+    local versions_object="$work_dir/versions.o"
+    local versions_archive="$work_dir/versions.a"
+    local compile_flags=()
+    read -r -a compile_flags <<< "$cflags"
+
+    "$compiler" "${compile_flags[@]}" \
+        -I"$prefix/include" -I"$openssl_prefix/include" \
+        -c "$SCRIPT_DIR/versions.c" -o "$versions_object"
+    "$archiver" crsD "$versions_archive" "$versions_object"
+    archives+=("$versions_archive")
 
     printf '==> [%s] combining static dependency closure\n' "$requested"
     combine_archives "$work_dir" "$archiver" "$bundle" "${archives[@]}"

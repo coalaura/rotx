@@ -10,7 +10,8 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #else
-#include <sys/select.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -63,6 +64,7 @@ static int rotx_socket_would_block(void) {
 
 static int rotx_socket_wait(tor_control_socket_t socket_value, int write_ready, int timeout_ms) {
 	for (;;) {
+#ifdef _WIN32
 		fd_set descriptors;
 		struct timeval timeout;
 
@@ -74,18 +76,18 @@ static int rotx_socket_wait(tor_control_socket_t socket_value, int write_ready, 
 
 		int result;
 
-#ifdef _WIN32
 		if (write_ready) {
 			result = select(0, NULL, &descriptors, NULL, &timeout);
 		} else {
 			result = select(0, &descriptors, NULL, NULL, &timeout);
 		}
 #else
-		if (write_ready) {
-			result = select(socket_value + 1, NULL, &descriptors, NULL, &timeout);
-		} else {
-			result = select(socket_value + 1, &descriptors, NULL, NULL, &timeout);
-		}
+		struct pollfd descriptor = {
+			.fd = socket_value,
+			.events = write_ready ? POLLOUT : POLLIN,
+			.revents = 0,
+		};
+		int result = poll(&descriptor, 1, timeout_ms);
 #endif
 
 		if (result >= 0) {
@@ -97,9 +99,11 @@ static int rotx_socket_wait(tor_control_socket_t socket_value, int write_ready, 
 			return -1;
 		}
 #else
-		if (errno != EINTR) {
-			return -1;
+		if (errno == EINTR) {
+			// Return to Go so repeated signals cannot postpone context cancellation.
+			return 0;
 		}
+		return -1;
 #endif
 	}
 }
@@ -183,6 +187,21 @@ rotx_tor *rotx_tor_new(int argc, const char *const *argv) {
 		free(instance);
 		return NULL;
 	}
+
+	// Readiness can change before I/O; never let recv/send bypass Go's cancellation polling.
+#ifdef _WIN32
+	u_long nonblocking = 1;
+	if (ioctlsocket(instance->control, FIONBIO, &nonblocking) != 0) {
+		rotx_tor_free(instance);
+		return NULL;
+	}
+#else
+	int flags = fcntl(instance->control, F_GETFL, 0);
+	if (flags < 0 || fcntl(instance->control, F_SETFL, flags | O_NONBLOCK) != 0) {
+		rotx_tor_free(instance);
+		return NULL;
+	}
+#endif
 
 	return instance;
 }

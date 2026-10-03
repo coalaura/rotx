@@ -22,9 +22,11 @@ The configuration is nginx-style, with a smaller set of features and some intent
 
 ## Running
 
+Run `rotx version` to print the release version and an indented list of native library versions. This command does not load configuration or start Tor. Tor/OpenSSL/Libevent/zlib versions come from the linked libraries' version APIs.
+
 Start `rotx` from the directory containing `rotx.conf`. It runs embedded Tor, keeps Tor's persistent state in `data/tor`, waits for bootstrap and registers every configured onion identity on HTTP port 80. The identity files are revalidated at registration and both native Tor keys and PEM keys are supported.
 
-All onion services share one dynamically assigned IPv4 loopback listener. Tor forwards streams directly to that listener without an intermediate HTTP proxy. Routing uses the original onion `Host` header. Plain's access-log middleware records the method, path, status, duration and loopback peer after each completed request; that peer is Tor, not the visitor's IP. HTTP handling and access logging are not allocation-free.
+All onion services share one dynamically assigned IPv4 loopback listener. Tor forwards streams directly to that listener without an intermediate HTTP proxy. Routing uses the original onion `Host` header. Plain's access-log middleware records the method, path, status, duration and requested host after each completed request. The host identifies the requested onion service, not the visitor's IP. HTTP handling and access logging are not allocation-free.
 
 Registration is not a reachability check: Tor still needs introduction circuits and successful descriptor uploads before clients can find the service. The startup log reports registration rather than claiming publication. Failures before HTTP reaches rotx, including descriptor lookup failures, produce no HTTP access log. Configuration is loaded once at startup; changes require a restart.
 

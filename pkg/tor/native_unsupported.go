@@ -29,6 +29,10 @@ func nativeVersion() string {
 	return ""
 }
 
+func nativeVersions() LibraryVersions {
+	return LibraryVersions{}
+}
+
 func newNativeInstance([]string) (*nativeInstance, error) {
 	return nil, fmt.Errorf("embedded Tor requires cgo on Linux or Windows")
 }
