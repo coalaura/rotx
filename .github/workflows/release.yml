@@ -53,7 +53,7 @@ jobs:
 
       - name: Build native Tor library
         shell: bash
-        run: ./tools/tor/build.sh "${{ matrix.os }}/${{ matrix.arch }}"
+        run: bash ./tools/tor/build.sh "${{ matrix.os }}/${{ matrix.arch }}"
 
       - name: Build rotx
         id: build
