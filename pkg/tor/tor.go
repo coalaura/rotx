@@ -28,6 +28,10 @@ type Options struct {
 	// and shutdown logs. It must be concurrency-safe and must not call Tor APIs.
 	// When nil, Tor writes to its usual stdout/stderr destinations.
 	Log func(level, message string)
+
+	// Descriptor receives upload progress on the control reader. It must return
+	// promptly and must not call Tor APIs. Nil disables event subscription.
+	Descriptor func(DescriptorEvent)
 }
 
 type Instance struct {
@@ -45,6 +49,13 @@ type Instance struct {
 var torStarted atomic.Bool
 
 func (instance *Instance) WaitBootstrap(ctx context.Context) error {
+	if instance.control.event != nil {
+		_, err := instance.control.command(ctx, "SETEVENTS HS_DESC")
+		if err != nil {
+			return fmt.Errorf("subscribe to descriptor publication: %w", err)
+		}
+	}
+
 	ticker := time.NewTicker(bootstrapPollInterval)
 	defer ticker.Stop()
 
@@ -230,6 +241,10 @@ func Start(options Options) (*Instance, error) {
 		control:   newControl(native),
 		runDone:   make(chan struct{}),
 		closeDone: make(chan struct{}),
+	}
+
+	if options.Descriptor != nil {
+		instance.control.event = descriptorHandler(options.Descriptor)
 	}
 
 	started = true

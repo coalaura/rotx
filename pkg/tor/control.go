@@ -24,6 +24,11 @@ type ControlError struct {
 	Code    int
 }
 
+type controlResult struct {
+	reply Reply
+	err   error
+}
+
 type control struct {
 	instance *nativeInstance
 	buffer   []byte
@@ -31,6 +36,10 @@ type control struct {
 	lifetime context.Context
 	cancel   context.CancelFunc
 	closed   bool
+	reading  bool
+	replies  chan controlResult
+	readDone chan struct{}
+	event    func(Reply)
 }
 
 func (r Reply) Value(name string) (string, bool) {
@@ -74,6 +83,11 @@ func (c *control) closeLocked() {
 
 	c.closed = true
 	c.cancel()
+
+	if c.reading {
+		<-c.readDone
+	}
+
 	c.instance.closeControl()
 }
 
@@ -120,6 +134,12 @@ func (c *control) commandBytes(ctx context.Context, command []byte) (Reply, erro
 
 	defer clear(wire)
 
+	if !c.reading {
+		c.reading = true
+
+		go c.readLoop()
+	}
+
 	err = c.instance.write(commandContext, wire)
 	if err != nil {
 		c.closeLocked()
@@ -127,37 +147,57 @@ func (c *control) commandBytes(ctx context.Context, command []byte) (Reply, erro
 		return Reply{}, err
 	}
 
+	var result controlResult
+
+	select {
+	case <-commandContext.Done():
+		result.err = commandContext.Err()
+	case result = <-c.replies:
+	}
+
+	if result.err != nil {
+		// A partial or cancelled exchange cannot safely be reused for another command.
+		c.closeLocked()
+
+		return Reply{}, result.err
+	}
+
+	if result.reply.Code >= 400 {
+		message := ""
+
+		if len(result.reply.Lines) != 0 {
+			message = result.reply.Lines[len(result.reply.Lines)-1]
+		}
+
+		return result.reply, &ControlError{Code: result.reply.Code, Message: message}
+	}
+
+	return result.reply, nil
+}
+
+func (c *control) readLoop() {
+	defer close(c.readDone)
+
 	for {
-		reply, err := c.readReply(commandContext)
+		reply, err := c.readReply(c.lifetime)
+
+		select {
+		case <-c.lifetime.Done():
+			return
+		case c.replies <- controlResult{reply: reply, err: err}:
+		}
+
 		if err != nil {
-			// A partial or cancelled exchange cannot safely be reused for another command.
-			c.closeLocked()
-
-			return Reply{}, err
+			return
 		}
-
-		// Events use 650. rotx does not subscribe to events, but consuming them
-		// here makes the parser safe if Tor emits one around another command.
-		if reply.Code == 650 {
-			continue
-		}
-
-		if reply.Code >= 400 {
-			message := ""
-
-			if len(reply.Lines) != 0 {
-				message = reply.Lines[len(reply.Lines)-1]
-			}
-
-			return reply, &ControlError{Code: reply.Code, Message: message}
-		}
-
-		return reply, nil
 	}
 }
 
 func (c *control) readReply(ctx context.Context) (Reply, error) {
-	var reply Reply
+	var (
+		reply Reply
+		event Reply
+	)
 
 	for {
 		line, err := c.readLine(ctx)
@@ -170,13 +210,20 @@ func (c *control) readReply(ctx context.Context) (Reply, error) {
 			return Reply{}, err
 		}
 
-		if reply.Code == 0 {
-			reply.Code = code
-		} else if reply.Code != code {
-			return Reply{}, fmt.Errorf("tor control reply changed status from %d to %d", reply.Code, code)
+		// Asynchronous events may arrive while a command reply is incomplete.
+		message := &reply
+
+		if code == 650 {
+			message = &event
 		}
 
-		reply.Lines = append(reply.Lines, text)
+		if message.Code == 0 {
+			message.Code = code
+		} else if message.Code != code {
+			return Reply{}, fmt.Errorf("tor control reply changed status from %d to %d", message.Code, code)
+		}
+
+		message.Lines = append(message.Lines, text)
 
 		if separator == '+' {
 			err = c.readDataBlock(ctx)
@@ -186,6 +233,16 @@ func (c *control) readReply(ctx context.Context) (Reply, error) {
 		}
 
 		if separator == ' ' {
+			if code == 650 {
+				if c.event != nil {
+					c.event(event)
+				}
+
+				event = Reply{}
+
+				continue
+			}
+
 			return reply, nil
 		}
 	}
@@ -240,6 +297,8 @@ func newControl(instance *nativeInstance) *control {
 		gate:     make(chan struct{}, 1),
 		lifetime: lifetime,
 		cancel:   cancel,
+		replies:  make(chan controlResult),
+		readDone: make(chan struct{}),
 	}
 }
 

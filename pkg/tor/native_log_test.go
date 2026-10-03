@@ -109,6 +109,13 @@ func testNativeLogCallback(t *testing.T) {
 	}()
 
 	controller := newControl(native)
+	events := make(chan Reply, 1)
+
+	controller.event = func(reply Reply) {
+		if len(reply.Lines) > 0 && reply.Lines[0] == "CONF_CHANGED" {
+			events <- reply
+		}
+	}
 
 	t.Cleanup(func() {
 		controller.close()
@@ -124,9 +131,25 @@ func testNativeLogCallback(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	_, err = controller.command(ctx, "SETEVENTS HS_DESC CONF_CHANGED")
+	if err != nil {
+		t.Fatalf("subscribe to native events: %v", err)
+	}
+
 	_, err = controller.command(ctx, `SETCONF Log="info stderr"`)
 	if err != nil {
 		t.Fatalf("reconfigure logging: %v", err)
+	}
+
+	// No command is in flight: the reader must still deliver native events.
+	select {
+	case event := <-events:
+		value, ok := event.Value("Log")
+		if !ok || value != "info stderr" {
+			t.Fatalf("native configuration event = %+v", event)
+		}
+	case <-ctx.Done():
+		t.Fatal("native control event was not delivered while idle")
 	}
 
 	_, err = controller.command(ctx, "SIGNAL SHUTDOWN")

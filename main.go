@@ -45,6 +45,7 @@ func main() {
 		Tor: tor.Options{
 			DataDirectory: TorDataDirectory,
 			LogLevel:      "notice",
+			Descriptor:    newDescriptorLogger(log, compiled.ServerCount()),
 			Log: func(level, message string) {
 				writeTorLog(log, level, message)
 			},
@@ -58,7 +59,7 @@ func main() {
 		Middleware: log.Middleware(plain.WithHostAsPeer()),
 		Ready: func() {
 			for identity := range compiled.Identities() {
-				log.Infof("Registered http://%s.onion; descriptor publication is asynchronous\n", identity.Name)
+				log.Infof("Registered http://%s.onion\n", identity.Name)
 			}
 		},
 	}

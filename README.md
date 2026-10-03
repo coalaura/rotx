@@ -32,6 +32,8 @@ All onion services share one dynamically assigned IPv4 loopback listener. Tor fo
 
 Registration is not a reachability check: Tor still needs introduction circuits and successful descriptor uploads before clients can find the service. The startup log reports registration rather than claiming publication. Failures before HTTP reaches rotx, including descriptor lookup failures, produce no HTTP access log. Configuration is loaded once at startup; changes require a restart.
 
+rotx listens for Tor's descriptor events continuously, including while no control commands are running. It logs the first descriptor creation, upload attempt and confirmed publication for each onion service per process. Publication means one hidden-service directory (HSDir) accepted the descriptor; remaining replicas and client reachability may still take time. Repeated successful uploads are condensed, while upload failures include Tor's reason and the HSDir involved. If startup stops at registration or descriptor creation, no upload has yet been confirmed.
+
 Tor console logs use Plain's timestamp and the format `[tor/level] message`, with only the level colored using the logger's theme. The native callback provides the severity and timestamp-free message directly.
 
 Ctrl+C or SIGTERM stops accepting requests, allows active responses up to 30 seconds to finish and then shuts down Tor and removes its onion registrations. Startup failures and unexpected Tor or listener exits also clean up the listener and Tor instance.
