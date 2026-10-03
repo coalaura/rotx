@@ -2,14 +2,89 @@ package config
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base32"
 	"encoding/pem"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestLoadPrivateKeyFormats(t *testing.T) {
+	fixture := newIdentityFixture(t)
+
+	identity := Identity{
+		Name:           fixture.name,
+		PrivateKeyPath: filepath.Join(fixture.directory, "private.pem"),
+		PublicKeyPath:  filepath.Join(fixture.directory, "public.pem"),
+	}
+
+	expected := sha512.Sum512(fixture.private.Seed())
+
+	expected[0] &= 248
+	expected[31] &= 63
+	expected[31] |= 64
+
+	private, err := identity.LoadPrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(private, expected[:]) {
+		t.Fatal("PEM key was not expanded to Tor's scalar and signing prefix")
+	}
+
+	clear(private)
+
+	writeFixture(t, identity.PrivateKeyPath, append([]byte(torPrivateHeader), expected[:]...))
+	writeFixture(t, identity.PublicKeyPath, append([]byte(torPublicHeader), fixture.public...))
+
+	private, err = identity.LoadPrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(private, expected[:]) {
+		t.Fatal("native expanded key changed during loading")
+	}
+
+	clear(private)
+}
+
+func TestLoadPrivateKeyRevalidatesFiles(t *testing.T) {
+	fixture := newIdentityFixture(t)
+
+	compiled := compileFixture(t, fixture, fixture.config(""))
+
+	for identity := range compiled.Identities() {
+		other := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{8}, ed25519.SeedSize))
+		expanded := sha512.Sum512(other.Seed())
+
+		expanded[0] &= 248
+		expanded[31] &= 63
+		expanded[31] |= 64
+
+		writeFixture(t, identity.PrivateKeyPath, append([]byte(torPrivateHeader), expanded[:]...))
+
+		private, err := identity.LoadPrivateKey()
+		if err == nil || private != nil || !strings.Contains(err.Error(), "key_private does not match") {
+			t.Fatalf("changed private key accepted: %v", err)
+		}
+
+		err = os.Remove(identity.PublicKeyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		private, err = identity.LoadPrivateKey()
+		if err == nil || private != nil || !strings.Contains(err.Error(), "key_public") {
+			t.Fatalf("missing public key accepted: %v", err)
+		}
+	}
+}
 
 func TestRejectMalformedKeyEncodings(t *testing.T) {
 	fixture := newIdentityFixture(t)
@@ -54,7 +129,7 @@ func TestRejectMalformedKeyEncodings(t *testing.T) {
 	}
 
 	for index, contents := range invalid {
-		_, err := privatePublicKey(contents)
+		_, err := parsePrivateKey(contents)
 		if err == nil {
 			t.Fatalf("malformed key %d accepted", index)
 		}

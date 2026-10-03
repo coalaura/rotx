@@ -47,8 +47,8 @@ type headerPlan struct {
 	append bool
 }
 
-// Identity retains resolved key paths for the future Tor service setup. Loading
-// validates their contents; service setup must revalidate if it rereads them.
+// Identity retains resolved key paths. LoadPrivateKey revalidates their contents
+// when preparing an onion service.
 type Identity struct {
 	Name           string
 	PrivateKeyPath string

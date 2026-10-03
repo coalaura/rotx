@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha3"
+	"crypto/sha512"
 	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base32"
@@ -20,43 +21,70 @@ const (
 	torPublicHeader  = "== ed25519v1-public: type0 ==\x00\x00\x00"
 )
 
-func validateIdentity(name, privatePath, publicPath string) error {
-	public, err := onionPublicKey(name)
+// LoadPrivateKey rereads and validates the identity, returning Tor's expanded
+// Ed25519 secret key. The caller must clear the returned bytes after use.
+func (identity Identity) LoadPrivateKey() ([]byte, error) {
+	public, err := onionPublicKey(identity.Name)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	publicFile, err := os.ReadFile(publicPath)
+	publicFile, err := os.ReadFile(identity.PublicKeyPath)
 	if err != nil {
-		return fmt.Errorf("key_public: %w", err)
+		return nil, fmt.Errorf("key_public: %w", err)
 	}
 
 	loaded, err := parsePublicKey(publicFile)
 	if err != nil {
-		return fmt.Errorf("key_public: %w", err)
+		return nil, fmt.Errorf("key_public: %w", err)
 	}
 
 	if !bytes.Equal(public, loaded) {
-		return fmt.Errorf("key_public does not match onion name")
+		return nil, fmt.Errorf("key_public does not match onion name")
 	}
 
-	privateFile, err := os.ReadFile(privatePath)
+	privateFile, err := os.ReadFile(identity.PrivateKeyPath)
 	if err != nil {
-		return fmt.Errorf("key_private: %w", err)
+		return nil, fmt.Errorf("key_private: %w", err)
 	}
 
 	defer clear(privateFile)
 
-	derived, err := privatePublicKey(privateFile)
+	private, err := parsePrivateKey(privateFile)
 	if err != nil {
-		return fmt.Errorf("key_private: %w", err)
+		return nil, fmt.Errorf("key_private: %w", err)
 	}
+
+	var scalar edwards25519.Scalar
+
+	_, err = scalar.SetBytesWithClamping(private[:32])
+	if err != nil {
+		clear(private)
+
+		return nil, fmt.Errorf("key_private: %w", err)
+	}
+
+	var point edwards25519.Point
+
+	derived := point.ScalarBaseMult(&scalar).Bytes()
 
 	if subtle.ConstantTimeCompare(derived, public) != 1 {
-		return fmt.Errorf("key_private does not match key_public and onion name")
+		clear(private)
+
+		return nil, fmt.Errorf("key_private does not match key_public and onion name")
 	}
 
-	return nil
+	return private, nil
+}
+
+func validateIdentity(name, privatePath, publicPath string) error {
+	identity := Identity{Name: name, PrivateKeyPath: privatePath, PublicKeyPath: publicPath}
+
+	private, err := identity.LoadPrivateKey()
+
+	clear(private)
+
+	return err
 }
 
 func onionPublicKey(name string) ([]byte, error) {
@@ -107,23 +135,14 @@ func parsePublicKey(contents []byte) ([]byte, error) {
 	return public, nil
 }
 
-func privatePublicKey(contents []byte) ([]byte, error) {
+func parsePrivateKey(contents []byte) ([]byte, error) {
 	if len(contents) == len(torPrivateHeader)+64 && bytes.HasPrefix(contents, []byte(torPrivateHeader)) {
 		expanded := contents[len(torPrivateHeader):]
 		if expanded[0]&7 != 0 || expanded[31]&192 != 64 {
 			return nil, fmt.Errorf("invalid expanded Ed25519 scalar")
 		}
 
-		var scalar edwards25519.Scalar
-
-		_, err := scalar.SetBytesWithClamping(expanded[:32])
-		if err != nil {
-			return nil, err
-		}
-
-		var point edwards25519.Point
-
-		return point.ScalarBaseMult(&scalar).Bytes(), nil
+		return bytes.Clone(expanded), nil
 	}
 
 	block, err := decodePEM(contents, "PRIVATE KEY")
@@ -145,7 +164,14 @@ func privatePublicKey(contents []byte) ([]byte, error) {
 
 	defer clear(private)
 
-	return private.Public().(ed25519.PublicKey), nil
+	// Tor expects SHA-512(seed) with a clamped scalar, not Go's seed || public key.
+	expanded := sha512.Sum512(private[:ed25519.SeedSize])
+
+	expanded[0] &= 248
+	expanded[31] &= 63
+	expanded[31] |= 64
+
+	return expanded[:], nil
 }
 
 func decodePEM(contents []byte, kind string) (*pem.Block, error) {

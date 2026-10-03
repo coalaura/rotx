@@ -15,7 +15,7 @@ export ZERO_AR_DATE=1
 
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 CACHE_DIR="${TOR_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rotx-tor}"
-NATIVE_DIR="$ROOT_DIR/internal/tor/native"
+NATIVE_DIR="$ROOT_DIR/pkg/tor/native"
 KEEP_WORK="${KEEP_WORK:-0}"
 TOR_ENABLE_POW="${TOR_ENABLE_POW:-0}"
 

@@ -1,7 +1,7 @@
 <picture>
 	<source media="(prefers-color-scheme: dark)" srcset=".github/banner.svg">
 	<source media="(prefers-color-scheme: light)" srcset=".github/banner-light.svg">
-	<img alt="rotx — Tor reverse proxy, with an onion's roots connecting to a file and an upstream server" src=".github/banner-light.svg">
+	<img alt="rotx - Tor reverse proxy, with an onion's roots connecting to a file and an upstream server" src=".github/banner-light.svg">
 </picture>
 
 rotx is a lightweight Tor reverse proxy and static file server, designed for high performance and zero-allocation routing. It sits between Tor and local files or HTTP services, serving multiple onion addresses with separate routes for each.
@@ -10,6 +10,7 @@ The configuration is nginx-style, with a smaller set of features and some intent
 
 ## Documentation
 
+- [Running](#running)
 - [Configuration](#configuration)
 - [Config syntax](#config-syntax)
 - [Routing](#routing)
@@ -18,6 +19,14 @@ The configuration is nginx-style, with a smaller set of features and some intent
 - [Responses and headers](#responses-and-headers)
 - [Caching](#caching)
 - [Development](#development)
+
+## Running
+
+Start `rotx` from the directory containing `config.yml`. It runs embedded Tor, keeps Tor's persistent state in `data/tor`, waits for bootstrap and registers every configured onion identity on HTTP port 80. The identity files are revalidated at registration and both native Tor keys and PEM keys are supported.
+
+All onion services share one dynamically assigned IPv4 loopback listener. Tor forwards streams directly to that listener, where the HTTP server calls the router without an intermediate HTTP proxy or handler wrapper. Routing uses the original onion `Host` header. The network layer adds no per-request work beyond the HTTP server and router; `net/http` itself is not allocation-free.
+
+Ctrl+C or SIGTERM stops accepting requests, allows active responses up to 30 seconds to finish and then shuts down Tor and removes its onion registrations. Startup failures and unexpected Tor or listener exits also clean up the listener and Tor instance.
 
 ## Configuration
 
@@ -139,12 +148,11 @@ Enabled static caching adds `Last-Modified` and a weak ETag from file metadata. 
 
 ## Development
 
-Use the Go version declared in [go.mod](go.mod).
+Use the Go version declared in [go.mod](go.mod). The executable requires CGO and the bundled Tor native archive for its target. Supported targets are Windows and Linux on amd64 and arm64.
 
 ```sh
 go build .
 go test ./...
-vet ./...
 ```
 
-`pkg/config` loads and validates configuration and then compiles the routing table. `pkg/config/syntax` handles parsing and includes. `pkg/router` provides the HTTP handler, static file serving and reverse proxy.
+`pkg/config` loads and validates configuration and then compiles the routing table. `pkg/config/syntax` handles parsing and includes. `pkg/router` provides the HTTP handler, static file serving and reverse proxy. `pkg/server` owns the listener, onion registration and shutdown lifecycle; `pkg/tor` embeds and controls Tor.
