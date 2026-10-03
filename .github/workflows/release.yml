@@ -65,6 +65,8 @@ jobs:
           generate: false
           optimization: compatible
           output: dist/rotx-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+          go-flags: |
+            -ldflags=-X main.Version=${{ github.ref_name }}
 
       - name: Sign rotx
         id: sign

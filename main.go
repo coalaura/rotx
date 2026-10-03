@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/coalaura/plain"
@@ -21,7 +23,15 @@ const (
 
 var log = plain.New(plain.WithDate(plain.RFC3339Local))
 
+var Version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "version") {
+		fmt.Printf("rotx version %s\n", Version)
+
+		return
+	}
+
 	log.Println("Loading config...")
 
 	compiled, err := config.Load(ConfigPath)
