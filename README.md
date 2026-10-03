@@ -6,6 +6,8 @@
 
 <p align="center">
   <a href="https://go.ws2.sh/rotx">https://go.ws2.sh/rotx</a>
+  -
+  <a href="http://rotxtorzw4ekrp7vjslx32vv2uv37uycgrrd4376r7smz2urfigngiad.onion">http://rotxtorzw4ekrp7vjslx32vv2uv37uycgrrd4376r7smz2urfigngiad.onion</a>
 </p>
 
 rotx is a lightweight Tor reverse proxy and static file server, designed for high performance and zero-allocation routing. It sits between Tor and local files or HTTP services, serving multiple onion addresses with separate routes for each.
