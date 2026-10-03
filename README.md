@@ -198,6 +198,17 @@ The disk cache persists across restarts and has no automatic size limit or evict
 
 Drop the Linux binary, your `rotx.conf` and the supplied `conf/` folder into one directory, then run `bash conf/setup.sh`. The [systemd installer](conf/README.md) handles privilege elevation, the service account, permissions and service startup automatically. The hardened service can read static content through normal Unix permissions and write only under the adjacent `data/` directory, including temporary files. Logs go to the system journal.
 
+<details>
+<summary>Service hardening at a glance</summary>
+
+Hardening is part of the default setup. In the `systemd-analyze security` results below, rotx's supplied service scores **1.3**, compared with **9.6** for the nginx service shown. Lower scores mean less exposure through the service unit's privileges and sandbox settings.
+
+![systemd-analyze security: rotx.service has an overall exposure level of 1.3, rated OK](.github/rotx-service.png)
+
+![systemd-analyze security: nginx.service has an overall exposure level of 9.6, rated UNSAFE](.github/nginx-service.png)
+
+</details>
+
 ## Development
 
 Use the Go version declared in [go.mod](go.mod). The executable requires CGO and the bundled Tor native archive for its target. Supported targets are Windows and Linux on amd64 and arm64.
