@@ -27,7 +27,7 @@ func main() {
 	compiled, err := config.Load(ConfigPath)
 	log.MustFail(err)
 
-	log.Infof("Configuration valid: %d onion services", compiled.ServerCount())
+	log.Infof("Configuration valid: %d onion services\n", compiled.ServerCount())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -39,12 +39,12 @@ func main() {
 		},
 		Handoffs: router.Handoffs{
 			Error: func(request *http.Request, err error) {
-				log.Errorf("HTTP %s %s: %v", request.Method, request.URL.Path, err)
+				log.Errorf("HTTP %s %s: %v\n", request.Method, request.URL.Path, err)
 			},
 		},
 		Ready: func() {
 			for identity := range compiled.Identities() {
-				log.Infof("Serving http://%s.onion", identity.Name)
+				log.Infof("Serving http://%s.onion\n", identity.Name)
 			}
 		},
 	}
