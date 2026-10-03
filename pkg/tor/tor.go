@@ -21,6 +21,11 @@ const (
 type Options struct {
 	DataDirectory string
 	LogLevel      string
+
+	// Log receives timestamp-free Tor messages synchronously, including startup
+	// and shutdown logs. It must be concurrency-safe and must not call Tor APIs.
+	// When nil, Tor writes to its usual stdout/stderr destinations.
+	Log func(level, message string)
 }
 
 type Instance struct {
@@ -214,7 +219,7 @@ func Start(options Options) (*Instance, error) {
 	started = true
 
 	go func() {
-		code := native.run()
+		code := native.run(options.Log)
 
 		instance.errMutex.Lock()
 

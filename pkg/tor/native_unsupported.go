@@ -9,7 +9,7 @@ import (
 
 type nativeInstance struct{}
 
-func (i *nativeInstance) run() int {
+func (i *nativeInstance) run(func(level, message string)) int {
 	return -1
 }
 

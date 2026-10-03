@@ -28,6 +28,8 @@ All onion services share one dynamically assigned IPv4 loopback listener. Tor fo
 
 Registration is not a reachability check: Tor still needs introduction circuits and successful descriptor uploads before clients can find the service. The startup log reports registration rather than claiming publication. Failures before HTTP reaches rotx, including descriptor lookup failures, produce no HTTP access log. Configuration is loaded once at startup; changes require a restart.
 
+Tor console logs use Plain's timestamp and the format `[tor/level] message`, with only the level colored using the logger's theme. The native callback provides the severity and timestamp-free message directly.
+
 Ctrl+C or SIGTERM stops accepting requests, allows active responses up to 30 seconds to finish and then shuts down Tor and removes its onion registrations. Startup failures and unexpected Tor or listener exits also clean up the listener and Tor instance.
 
 ## Configuration
@@ -153,6 +155,8 @@ Enabled static caching adds `Last-Modified` and a weak ETag from file metadata. 
 ## Development
 
 Use the Go version declared in [go.mod](go.mod). The executable requires CGO and the bundled Tor native archive for its target. Supported targets are Windows and Linux on amd64 and arm64.
+
+`tools/tor/build.sh` rebuilds the native archives and applies `tools/tor/logging.patch`. This small patch attaches the host callback to Tor's console handlers, including handlers replaced during log reconfiguration. Normal file logging and signal-safe diagnostics retain their original destinations.
 
 ```sh
 go build .

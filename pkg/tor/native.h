@@ -8,6 +8,7 @@ typedef struct rotx_tor rotx_tor;
 
 rotx_tor *rotx_tor_new(int argc, const char *const *argv);
 int rotx_tor_run(rotx_tor *instance);
+void rotx_tor_capture_logs(int enabled);
 void rotx_tor_free(rotx_tor *instance);
 
 const char *rotx_tor_version(void);

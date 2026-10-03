@@ -31,7 +31,19 @@ type nativeInstance struct {
 	pointer *C.rotx_tor
 }
 
-func (i *nativeInstance) run() int {
+func (i *nativeInstance) run(handler func(level, message string)) int {
+	if handler != nil {
+		activeLogHandler.Store(&logHandler{write: handler})
+
+		C.rotx_tor_capture_logs(1)
+
+		defer func() {
+			C.rotx_tor_capture_logs(0)
+
+			activeLogHandler.Store(nil)
+		}()
+	}
+
 	return int(C.rotx_tor_run(i.pointer))
 }
 

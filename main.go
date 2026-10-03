@@ -36,6 +36,9 @@ func main() {
 		Tor: tor.Options{
 			DataDirectory: TorDataDirectory,
 			LogLevel:      "notice",
+			Log: func(level, message string) {
+				writeTorLog(log, level, message)
+			},
 		},
 		Handoffs: router.Handoffs{
 			Error: func(request *http.Request, err error) {

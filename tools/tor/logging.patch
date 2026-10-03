@@ -1,0 +1,30 @@
+--- a/src/lib/log/log.c
++++ b/src/lib/log/log.c
+@@ -81,6 +81,17 @@
+ } logfile_t;
+ 
++static log_callback rotx_log_callback;
++
++/* The embedding host sets this only before tor_run_main and after it returns.
++ * Attach it to each console handler so log reconfiguration preserves it.
++ * File and signal-safe logging retain their original destinations. */
++void
++rotx_tor_set_log_callback(log_callback callback)
++{
++  rotx_log_callback = callback;
++}
++
+ static void log_free_(logfile_t *victim);
+ #define log_free(lg)    \
+   FREE_AND_NULL(logfile_t, log_free_, (lg))
+ 
+@@ -895,6 +906,9 @@
+   lf->filename = tor_strdup(name);
+   lf->severities = tor_memdup(severity, sizeof(log_severity_list_t));
+   lf->next = logfiles;
++  if (fd == STDOUT_FILENO || fd == STDERR_FILENO) {
++    lf->callback = rotx_log_callback;
++  }
+ 
+   logfiles = lf;
+   log_global_min_severity_ = get_min_log_level();

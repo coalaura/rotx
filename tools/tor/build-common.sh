@@ -37,6 +37,7 @@ check_tools() {
         grep \
         make \
         perl \
+        patch \
         pkg-config \
         sed \
         sha256sum \
@@ -634,6 +635,8 @@ build_target() {
     extract "$CACHE_DIR/libevent-${LIBEVENT_VERSION}.tar.gz" "$libevent_source"
     extract "$CACHE_DIR/openssl-${OPENSSL_VERSION}.tar.gz" "$openssl_source"
     extract "$CACHE_DIR/tor-${TOR_VERSION}.tar.gz" "$tor_source"
+
+    patch --directory="$tor_source" --strip=1 --fuzz=0 < "$SCRIPT_DIR/logging.patch"
 
     printf '==> [%s] zlib %s\n' "$requested" "$ZLIB_VERSION"
 

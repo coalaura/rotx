@@ -1,0 +1,156 @@
+//go:build (linux || windows) && cgo
+
+package tor
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+type nativeLogEntry struct {
+	level   string
+	message string
+}
+
+func TestNativeLogCallback(t *testing.T) {
+	// Tor is process-global and cannot be restarted after cleanup.
+	if os.Getenv("ROTX_TEST_NATIVE_LOGS") == "1" {
+		testNativeLogCallback(t)
+
+		return
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	command := exec.CommandContext(ctx, executable, "-test.run=^TestNativeLogCallback$")
+	command.Env = append(os.Environ(), "ROTX_TEST_NATIVE_LOGS=1")
+
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("native logging subprocess: %v\n%s", err, output)
+	}
+
+	if string(output) != "PASS\n" {
+		t.Fatalf("unexpected console output outside the callback: %q", output)
+	}
+}
+
+func testNativeLogCallback(t *testing.T) {
+	t.Helper()
+
+	directory := t.TempDir()
+	configuration := filepath.Join(directory, "torrc")
+
+	err := os.WriteFile(configuration, nil, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	arguments := []string{
+		"tor", "-f", configuration,
+		"--DataDirectory", directory,
+		"--DisableNetwork", "1",
+		"--SocksPort", "0",
+		"--Log", "notice stderr",
+		"--__DisableSignalHandlers", "1",
+	}
+
+	native, err := newNativeInstance(arguments)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mutex sync.Mutex
+
+	entries := make([]nativeLogEntry, 0, 64)
+	finished := make(chan struct{})
+
+	var result int
+
+	go func() {
+		result = native.run(func(level, message string) {
+			mutex.Lock()
+			entries = append(entries, nativeLogEntry{level: level, message: message})
+			mutex.Unlock()
+		})
+
+		close(finished)
+	}()
+
+	controller := &control{instance: native}
+
+	t.Cleanup(func() {
+		controller.close()
+
+		select {
+		case <-finished:
+			native.free()
+		case <-time.After(10 * time.Second):
+			t.Error("native Tor did not stop")
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err = controller.command(ctx, `SETCONF Log="info stderr"`)
+	if err != nil {
+		t.Fatalf("reconfigure logging: %v", err)
+	}
+
+	_, err = controller.command(ctx, "SIGNAL SHUTDOWN")
+	if err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	select {
+	case <-finished:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+
+	if result != 0 {
+		t.Fatalf("native exit status: %d", result)
+	}
+
+	var (
+		startupCount int
+		shutdown     bool
+	)
+
+	for _, entry := range entries {
+		if strings.ContainsAny(entry.message, "\r\n") {
+			t.Errorf("callback message contains a line ending: %q", entry.message)
+		}
+
+		switch entry.level {
+		case "debug", "info", "notice", "warn", "err":
+		default:
+			t.Errorf("unknown severity: %q", entry.level)
+		}
+
+		if strings.HasPrefix(entry.message, "Tor 0.") && entry.level == "notice" {
+			startupCount++
+		}
+
+		if strings.Contains(entry.message, "exiting cleanly") && entry.level == "notice" {
+			shutdown = true
+		}
+	}
+
+	if startupCount != 1 || !shutdown {
+		t.Fatalf("missing or duplicated timestamp-free lifecycle logs: startup=%d shutdown=%t entries=%+v", startupCount, shutdown, entries)
+	}
+}
