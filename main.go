@@ -42,9 +42,10 @@ func main() {
 				log.Errorf("HTTP %s %s: %v\n", request.Method, request.URL.Path, err)
 			},
 		},
+		Middleware: log.Middleware(),
 		Ready: func() {
 			for identity := range compiled.Identities() {
-				log.Infof("Serving http://%s.onion\n", identity.Name)
+				log.Infof("Registered http://%s.onion; descriptor publication is asynchronous\n", identity.Name)
 			}
 		},
 	}

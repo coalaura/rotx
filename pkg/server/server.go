@@ -22,9 +22,12 @@ const (
 )
 
 type Options struct {
-	Tor      tor.Options
-	Handoffs router.Handoffs
-	Ready    func()
+	Tor        tor.Options
+	Handoffs   router.Handoffs
+	Middleware func(http.Handler) http.Handler
+	// Ready runs after local HTTP startup and onion registration. Descriptor
+	// publication and client reachability are not guaranteed at this point.
+	Ready func()
 }
 
 type torInstance interface {
@@ -69,6 +72,10 @@ func serve(ctx context.Context, compiled *config.Config, options Options, instan
 		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
+	}
+
+	if options.Middleware != nil {
+		server.Handler = options.Middleware(handler)
 	}
 
 	runContext, cancel := context.WithCancelCause(ctx)

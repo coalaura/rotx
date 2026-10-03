@@ -85,6 +85,18 @@ func TestCompiledRouting(t *testing.T) {
 
 func TestInheritanceAndTargets(t *testing.T) {
 	fixture := newIdentityFixture(t)
+
+	directories := []string{"files", "assets", "other"}
+
+	for _, directory := range directories {
+		err := os.Mkdir(filepath.Join(fixture.directory, directory), 0700)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeFixture(t, filepath.Join(fixture.directory, "single"), []byte("exact alias"))
+
 	text := fixture.config(`
 		alias files;
 		cache 2h;
@@ -154,7 +166,7 @@ func TestTextualIncludes(t *testing.T) {
 	writeFixture(t, filepath.Join(fixture.directory, "start.conf"), []byte(`http { header_set Example global;`))
 	writeFixture(t, filepath.Join(fixture.directory, "server.conf"), []byte(fmt.Sprintf(`server { name %s; key_private private.pem; key_public public.pem; include parts/*.conf; }`, fixture.name)))
 
-	err := os.Mkdir(filepath.Join(fixture.directory, "parts"), 0700)
+	err := os.MkdirAll(filepath.Join(fixture.directory, "parts", "files"), 0700)
 	if err != nil {
 		t.Fatal(err)
 	}

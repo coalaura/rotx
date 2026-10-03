@@ -169,7 +169,7 @@ func TestProxyBufferingAndHeaderCommit(t *testing.T) {
 }
 
 func TestStaticConditionalResponses(t *testing.T) {
-	compiled, host := routerConfig(t, `root files; cache on; header_set X-Final yes;`)
+	compiled, host := routerConfig(t, `root .; cache on; header_set X-Final yes;`)
 
 	modified := time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC)
 
@@ -251,7 +251,7 @@ func TestStaticConditionalResponses(t *testing.T) {
 
 func TestCacheOverridesAndWeakValidator(t *testing.T) {
 	compiled, host := routerConfig(t, `
-		root files; cache on;
+		root .; cache on;
 		location /auto { cache auto; }
 		location /off { cache off; }
 		location /override { header_unset ETag; header_unset Last-Modified; header_set Cache-Control private; header_unset Content-Type; }

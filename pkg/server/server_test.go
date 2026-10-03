@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coalaura/plain"
 	"github.com/coalaura/rotx/pkg/config"
 	"github.com/coalaura/rotx/pkg/router"
 	"github.com/coalaura/rotx/pkg/tor"
@@ -148,6 +149,87 @@ func TestServePublishesIdentitiesAndRoutesHTTP(t *testing.T) {
 	}
 
 	assertListenerClosed(t, listener)
+}
+
+func TestServeAccessLogsAndRemovedStaticRoot(t *testing.T) {
+	directory := t.TempDir()
+
+	err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("static response"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	compiled := testConfig(t, 1, fmt.Sprintf("root %q;", filepath.ToSlash(directory)))
+
+	listener := testListener(t)
+
+	instance := &fakeTor{}
+
+	ready := make(chan struct{})
+
+	var output bytes.Buffer
+
+	logger := plain.New(plain.WithTarget(&output))
+
+	options := Options{
+		Middleware: logger.Middleware(),
+		Ready: func() {
+			close(ready)
+		},
+	}
+
+	running := startServer(t, compiled, options, instance, listener)
+
+	waitSignal(t, ready)
+
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+
+	client := &http.Client{Transport: transport, Timeout: testTimeout}
+
+	host := instance.services[0].ID + ".onion"
+
+	body := testRequest(t, client, listener.Addr().String(), host)
+	if body != "static response" {
+		t.Fatalf("unexpected static response %q", body)
+	}
+
+	err = os.RemoveAll(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request, err := http.NewRequest(http.MethodGet, "http://"+listener.Addr().String()+"/removed", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request.Host = host
+
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	missingBody, err := io.ReadAll(response.Body)
+
+	response.Body.Close()
+
+	if err != nil || response.StatusCode != http.StatusNotFound || string(missingBody) != "Not Found\n" {
+		t.Fatalf("removed root must respond with HTTP 404: %d, %q, %v", response.StatusCode, missingBody, err)
+	}
+
+	running.cancel()
+
+	err = running.wait(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logs := output.String()
+	if strings.Count(logs, "\n") != 2 || !strings.Contains(logs, "GET    / 200 ") || !strings.Contains(logs, "GET    /removed 404 ") || strings.Count(logs, "127.0.0.1") != 2 {
+		t.Fatalf("expected completed success and error access logs, got %q", logs)
+	}
 }
 
 func TestServeRegistrationFailureCleansUp(t *testing.T) {

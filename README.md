@@ -22,15 +22,17 @@ The configuration is nginx-style, with a smaller set of features and some intent
 
 ## Running
 
-Start `rotx` from the directory containing `config.yml`. It runs embedded Tor, keeps Tor's persistent state in `data/tor`, waits for bootstrap and registers every configured onion identity on HTTP port 80. The identity files are revalidated at registration and both native Tor keys and PEM keys are supported.
+Start `rotx` from the directory containing `rotx.conf`. It runs embedded Tor, keeps Tor's persistent state in `data/tor`, waits for bootstrap and registers every configured onion identity on HTTP port 80. The identity files are revalidated at registration and both native Tor keys and PEM keys are supported.
 
-All onion services share one dynamically assigned IPv4 loopback listener. Tor forwards streams directly to that listener, where the HTTP server calls the router without an intermediate HTTP proxy or handler wrapper. Routing uses the original onion `Host` header. The network layer adds no per-request work beyond the HTTP server and router; `net/http` itself is not allocation-free.
+All onion services share one dynamically assigned IPv4 loopback listener. Tor forwards streams directly to that listener without an intermediate HTTP proxy. Routing uses the original onion `Host` header. Plain's access-log middleware records the method, path, status, duration and loopback peer after each completed request; that peer is Tor, not the visitor's IP. HTTP handling and access logging are not allocation-free.
+
+Registration is not a reachability check: Tor still needs introduction circuits and successful descriptor uploads before clients can find the service. The startup log reports registration rather than claiming publication. Failures before HTTP reaches rotx, including descriptor lookup failures, produce no HTTP access log. Configuration is loaded once at startup; changes require a restart.
 
 Ctrl+C or SIGTERM stops accepting requests, allows active responses up to 30 seconds to finish and then shuts down Tor and removes its onion registrations. Startup failures and unexpected Tor or listener exits also clean up the listener and Tor instance.
 
 ## Configuration
 
-The executable reads `config.yml` from the working directory. The file uses the syntax below, regardless of its extension.
+The executable reads `rotx.conf` from the working directory. The file uses the syntax below, regardless of its extension.
 
 ```nginx
 http {
@@ -107,6 +109,8 @@ Prefixes are textual: `/foo` matches `/foobar` as well as `/foo/bar`.
 | `index name ...` | server/location | Try index files in order; replaces the inherited list. Default: `index.html`. |
 
 Static serving supports GET and HEAD, MIME detection, byte ranges and conditional requests. Directory URLs redirect to a trailing slash; directories without an index return 404. There are no directory listings. File access is confined to the configured root or alias boundary, including symlink resolution.
+
+Configured roots and aliases are checked while loading configuration, before Tor starts. Roots and non-exact aliases must be accessible directories; an exact alias may name an accessible regular file or directory. Invalid targets report the directive's source position and resolved filesystem path. Individual requested files and index candidates need not exist at startup; missing files, missing indexes and paths removed after startup return 404.
 
 ## Reverse proxy
 

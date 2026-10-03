@@ -103,6 +103,11 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 		return "", nil, err
 	}
 
+	err = validateStaticRoute(fallback, &parsed)
+	if err != nil {
+		return "", nil, err
+	}
+
 	compiled := &server{
 		identity: identity,
 		fallback: fallback,
@@ -137,6 +142,11 @@ func compileServer(block *statement, parent *Route) (string, *server, error) {
 			default:
 				route.aliasPrefix = pattern
 			}
+		}
+
+		err = validateStaticRoute(route, &local)
+		if err != nil {
+			return "", nil, err
 		}
 
 		switch mode {

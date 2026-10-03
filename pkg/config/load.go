@@ -15,7 +15,8 @@ type Diagnostic = syntax.Diagnostic
 
 type statement = syntax.Statement
 
-// Load reads, validates, and compiles a configuration, including its key files.
+// Load reads, validates, and compiles a configuration, including its key files
+// and configured static roots and aliases.
 func Load(filename string) (*Config, error) {
 	source, err := os.ReadFile(filename)
 	if err != nil {
