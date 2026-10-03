@@ -45,7 +45,7 @@ func main() {
 				log.Errorf("HTTP %s %s: %v\n", request.Method, request.URL.Path, err)
 			},
 		},
-		Middleware: log.Middleware(),
+		Middleware: log.Middleware(plain.WithHostAsPeer()),
 		Ready: func() {
 			for identity := range compiled.Identities() {
 				log.Infof("Registered http://%s.onion; descriptor publication is asynchronous\n", identity.Name)

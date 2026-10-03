@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	filippo.io/edwards25519 v1.2.0
-	github.com/coalaura/plain v1.6.4
+	github.com/coalaura/plain v1.6.5
 )
 
 require (
